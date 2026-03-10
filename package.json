@@ -1,0 +1,24 @@
+{
+  "name": "veni-ai-sustainability-cockpit",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.6.0",
+  "scripts": {
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "build": "turbo run build",
+    "e2e": "turbo run e2e",
+    "generate:openapi": "python -c \"import json,sys;from pathlib import Path;api_root=Path('apps/api').resolve();sys.path.insert(0,str(api_root));from app.main import app;Path('apps/api/openapi.json').write_text(json.dumps(app.openapi(), indent=2), encoding='utf-8')\"",
+    "generate:types": "openapi-typescript apps/api/openapi.json --output packages/shared-types/src/generated/api-types.ts",
+    "contracts:sync": "pnpm run generate:openapi && pnpm run generate:types",
+    "knip": "knip --config knip.json",
+    "clean": "turbo run clean --continue"
+  },
+  "devDependencies": {
+    "knip": "^5.61.3",
+    "openapi-typescript": "^7.10.1",
+    "turbo": "^2.5.8",
+    "typescript": "^5.9.2"
+  }
+}

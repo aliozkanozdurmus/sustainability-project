@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security disclosure
+    url: https://github.com/aliozkanozdurmus/sustainability-project/security/policy
+    about: Report vulnerabilities privately instead of opening a public issue.
+  - name: Project documentation
+    url: https://github.com/aliozkanozdurmus/sustainability-project#readme
+    about: Review the README and public architecture docs before opening an issue.

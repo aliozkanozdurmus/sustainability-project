@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a scoped improvement for the platform baseline or developer workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user or engineering problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful version of the feature.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Note compliance, traceability, or data-isolation constraints.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: List rejected options if you have them.
