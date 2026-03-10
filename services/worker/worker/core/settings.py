@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import ClassVar
+from urllib.parse import urlparse
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,11 +15,24 @@ def _default_env_files() -> tuple[str, ...]:
     return tuple(str(path) for path in candidates)
 
 
+def _is_local_dev_database_host(database_url: str) -> bool:
+    hostname = (urlparse(database_url).hostname or "").strip().lower()
+    return hostname in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "postgres",
+        "db",
+        "host.docker.internal",
+    }
+
+
 class WorkerRuntimeSettings(BaseSettings):
     allowed_chat_model: ClassVar[str] = "gpt-5.2"
     allowed_embedding_model: ClassVar[str] = "text-embedding-3-large"
 
     app_env: str = Field(default="development")
+    allow_local_dev_database: bool = Field(default=False)
     worker_concurrency: int = Field(default=4)
     database_url: str = Field(
         default="postgresql+asyncpg://username:password@project.neon.tech/neondb?sslmode=require"
@@ -51,6 +65,12 @@ class WorkerRuntimeSettings(BaseSettings):
             raise ValueError("DATABASE_URL must use PostgreSQL (Neon PostgreSQL).")
 
         if ".neon.tech" not in normalized_database_url:
+            if (
+                self.allow_local_dev_database
+                and self.app_env.strip().lower() == "development"
+                and _is_local_dev_database_host(self.database_url)
+            ):
+                return self
             raise ValueError("DATABASE_URL must point to a Neon PostgreSQL host (*.neon.tech).")
 
         return self

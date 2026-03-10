@@ -15,6 +15,8 @@ Primary documentation set:
 - `AGENTS.md`
 - `docs/architecture/public-baseline.md`
 - `docs/configuration/runtime-configuration.md`
+- `docs/runbooks/docker-development.md`
+- `docs/runbooks/example-deployment.md`
 
 ---
 
@@ -67,7 +69,8 @@ Primary business outcomes:
 - Model policy is locked to:
   - `gpt-5.2` (generation + verifier)
   - `text-embedding-3-large` (embeddings)
-- Database policy is locked to **Neon PostgreSQL** (`*.neon.tech`).
+- Database policy is locked to **Neon PostgreSQL** (`*.neon.tech`) in production.
+- Local Docker development may use the bundled PostgreSQL service only when `ALLOW_LOCAL_DEV_DATABASE=true`.
 - Every claim must include citation references.
 - Every numeric claim must reference calculator artifacts.
 - Verifier statuses are strict: `PASS`, `FAIL`, `UNSURE`.
@@ -518,13 +521,14 @@ No implementation should proceed without architecture freeze sign-off.
 ## 24) Recommended Local Development Workflow
 
 1. Review `docs/architecture/public-baseline.md` and `AGENTS.md`.
-2. Validate architecture freeze checklist before coding.
-3. Run service-level quality gates:
+2. For the full containerized stack, follow `docs/runbooks/docker-development.md`.
+3. Validate architecture freeze checklist before coding.
+4. Run service-level quality gates:
 - web: lint, typecheck, tests
 - api: lint, typecheck, tests, migration checks
 - worker: job tests and integration checks
-4. Validate cross-service contracts before merge.
-5. Use phase-gated delivery and acceptance criteria per task.
+5. Validate cross-service contracts before merge.
+6. Use phase-gated delivery and acceptance criteria per task.
 
 ---
 

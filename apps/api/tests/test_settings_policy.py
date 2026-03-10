@@ -9,6 +9,7 @@ from app.core.settings import Settings, _default_env_files
 
 
 NEON_DATABASE_URL = "postgresql+asyncpg://user:password@demo-project.neon.tech/neondb?sslmode=require"
+LOCAL_DEV_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@postgres:5432/sustainability"
 
 
 def test_settings_accepts_locked_model_stack_and_neon_database() -> None:
@@ -71,6 +72,29 @@ def test_settings_rejects_non_neon_database_host() -> None:
         Settings(
             _env_file=None,
             database_url="postgresql+asyncpg://user:password@localhost:5432/sustainability",
+        )
+
+
+def test_settings_accepts_local_database_for_explicit_development_override() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="development",
+        allow_local_dev_database=True,
+        database_url=LOCAL_DEV_DATABASE_URL,
+        azure_openai_chat_deployment="gpt-5.2",
+        azure_openai_embedding_deployment="text-embedding-3-large",
+    )
+
+    assert settings.database_url == LOCAL_DEV_DATABASE_URL
+
+
+def test_settings_rejects_local_database_override_outside_development() -> None:
+    with pytest.raises(ValidationError, match=r"Neon PostgreSQL host"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            allow_local_dev_database=True,
+            database_url=LOCAL_DEV_DATABASE_URL,
         )
 
 

@@ -13,6 +13,7 @@ It replaces the internal planning file that was removed before making the projec
 - All numeric claims require deterministic calculation artifacts.
 - All publishable claims require evidence-backed citations.
 - Cross-tenant isolation is mandatory across API, retrieval, storage, and approvals.
+- Production database connections must target Neon PostgreSQL (`*.neon.tech`); local Docker development may use an explicit local override only in `development`.
 
 ## 3) One-Click Report Pipeline
 1. Resolve applicability and active framework scope.

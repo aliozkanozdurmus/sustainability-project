@@ -18,6 +18,7 @@ Date: 2026-03-10
 | `AZURE_OPENAI_API_VERSION` | API version for Azure OpenAI. | Keep aligned across services. |
 | `AZURE_OPENAI_CHAT_DEPLOYMENT` | Chat deployment name. | Must remain `gpt-5.2`. |
 | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | Embedding deployment name. | Must remain `text-embedding-3-large`. |
+| `ALLOW_LOCAL_DEV_DATABASE` | Opt-in local PostgreSQL override for Docker development. | Must remain `false` outside local development. |
 
 ## 3) Web Runtime Variables
 | Variable | Purpose |

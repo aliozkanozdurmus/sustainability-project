@@ -1,0 +1,153 @@
+name: sustainability-project
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: sustainability
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sustainability"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: dev
+    working_dir: /workspace/apps/api
+    command:
+      - /bin/sh
+      - -lc
+      - alembic upgrade head && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    environment:
+      APP_ENV: development
+      ALLOW_LOCAL_DEV_DATABASE: "true"
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/sustainability
+      REDIS_URL: redis://redis:6379/0
+      CORS_ALLOW_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      AZURE_STORAGE_USE_LOCAL: "true"
+      LOCAL_BLOB_ROOT: apps/api/storage
+      AZURE_AI_SEARCH_USE_LOCAL: "true"
+      LOCAL_SEARCH_INDEX_ROOT: apps/api/storage/search-index
+      LOCAL_CHECKPOINT_ROOT: apps/api/storage/checkpoints
+      AZURE_OPENAI_CHAT_DEPLOYMENT: gpt-5.2
+      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: text-embedding-3-large
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/workspace
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/health/ready")
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+      target: dev
+    working_dir: /workspace/services/worker
+    command: ["python", "-m", "arq", "worker.app.WorkerSettings"]
+    environment:
+      APP_ENV: development
+      ALLOW_LOCAL_DEV_DATABASE: "true"
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/sustainability
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_NAME: arq:queue
+      AZURE_OPENAI_CHAT_DEPLOYMENT: gpt-5.2
+      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: text-embedding-3-large
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    volumes:
+      - .:/workspace
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import os, redis; redis.from_url(os.environ["REDIS_URL"]).ping()
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: dev
+    working_dir: /workspace
+    command: ["pnpm", "--filter", "web", "dev", "--hostname", "0.0.0.0", "--port", "3000"]
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/workspace
+      - pnpm_store:/pnpm/store
+      - web_root_node_modules:/workspace/node_modules
+      - web_app_node_modules:/workspace/apps/web/node_modules
+      - web_shared_types_node_modules:/workspace/packages/shared-types/node_modules
+      - web_next_cache:/workspace/apps/web/.next
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch("http://127.0.0.1:3000").then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  redis_data:
+  pnpm_store:
+  web_root_node_modules:
+  web_app_node_modules:
+  web_shared_types_node_modules:
+  web_next_cache:
