@@ -18,6 +18,22 @@ Primary documentation set:
 
 ---
 
+## Product Preview
+
+Current UI screens from the repository:
+
+![Board dashboard overview](./output/playwright/dashboard.png)
+
+| Report Builder | Retrieval Lab |
+|---|---|
+| ![New report flow](./output/playwright/new-report.png) | ![Retrieval lab](./output/playwright/retrieval-lab.png) |
+
+| Approval Center | Evidence Center |
+|---|---|
+| ![Approval center](./output/playwright/approval-center.png) | ![Evidence center](./output/playwright/evidence-center.png) |
+
+---
+
 ## 1) What This Platform Does
 
 This platform lets enterprise teams upload ESG evidence, run deterministic multi-agent generation, and publish audit-ready sustainability report packages with claim-level traceability.
