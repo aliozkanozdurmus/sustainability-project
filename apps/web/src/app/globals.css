@@ -5,11 +5,11 @@
 
 :root {
   --header-height: 5.5rem;
-  --canvas: #d9dee6;
-  --workbench: #f5f2ea;
-  --rail: #efebe3;
-  --surface: #fbfaf6;
-  --panel: #fffdf9;
+  --canvas: #d4dae1;
+  --workbench: #f2eee5;
+  --rail: #e6e0d4;
+  --surface: #f7f3eb;
+  --panel: #fcf8f1;
   --panel-elevated: #ffffff;
   --foreground: #171613;
   --foreground-soft: #5a564f;
@@ -20,9 +20,9 @@
   --secondary-foreground: #322f2a;
   --muted: #f7f4ee;
   --muted-foreground: #878071;
-  --accent: #1f7a4a;
-  --accent-strong: #155b37;
-  --accent-soft: #e3efe6;
+  --accent: #2d6d53;
+  --accent-strong: #1f5a43;
+  --accent-soft: #dfebe4;
   --accent-foreground: #f7faf6;
   --destructive: #bf655a;
   --destructive-foreground: #fff7f5;
@@ -33,7 +33,7 @@
   --input: #f8f5ef;
   --ring: rgba(31, 122, 74, 0.16);
   --chart-1: #1f7a4a;
-  --chart-2: #8cad95;
+  --chart-2: #90ae99;
   --chart-3: #22211e;
   --chart-4: #d2a742;
   --chart-5: #d7ddd1;
@@ -48,9 +48,9 @@
   --sidebar-ring: var(--ring);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-inter);
-  --shadow-soft: 0 16px 34px rgba(39, 35, 29, 0.07);
-  --shadow-panel: 0 26px 70px rgba(47, 44, 37, 0.12);
-  --shadow-shell: 0 36px 90px rgba(49, 55, 63, 0.16);
+  --shadow-soft: 0 18px 36px rgba(42, 38, 31, 0.06);
+  --shadow-panel: 0 26px 68px rgba(48, 42, 34, 0.1);
+  --shadow-shell: 0 38px 96px rgba(56, 62, 71, 0.16);
   --radius: 1.6rem;
   --spacing: 0.25rem;
 }
@@ -118,9 +118,9 @@
     @apply text-foreground;
     min-height: 100vh;
     background:
-      radial-gradient(circle at top left, rgba(255, 255, 255, 0.72), transparent 24rem),
-      radial-gradient(circle at top right, rgba(31, 122, 74, 0.08), transparent 18rem),
-      linear-gradient(180deg, #dde2e9 0%, #d3d8e1 100%);
+      radial-gradient(circle at top left, rgba(255, 255, 255, 0.76), transparent 24rem),
+      radial-gradient(circle at top right, rgba(45, 109, 83, 0.08), transparent 18rem),
+      linear-gradient(180deg, #dbe0e7 0%, #cfd6de 100%);
   }
 
   button,
@@ -149,28 +149,31 @@
 
 @layer utilities {
   .workbench-shell {
-    @apply rounded-[2.75rem] border border-white/55 bg-[color:var(--workbench)];
+    @apply rounded-[2.85rem] border border-white/55 bg-[color:var(--workbench)];
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.1));
     box-shadow: var(--shadow-shell);
   }
 
   .rail-surface {
-    @apply rounded-[2.2rem] border bg-[color:var(--rail)];
+    @apply rounded-[2.3rem] border bg-[color:var(--rail)];
     border-color: rgba(23, 22, 19, 0.05);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.08));
   }
 
   .content-surface {
-    @apply rounded-[2.2rem] border bg-[color:var(--surface)];
+    @apply rounded-[2.3rem] border bg-[color:var(--surface)];
     border-color: rgba(23, 22, 19, 0.05);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.12));
   }
 
   .panel-surface {
-    @apply rounded-[1.85rem] border bg-white/88 backdrop-blur-sm;
+    @apply rounded-[1.75rem] border bg-white/86 backdrop-blur-sm;
     border-color: var(--border);
     box-shadow: var(--shadow-soft);
   }
 
   .panel-surface-elevated {
-    @apply rounded-[1.9rem] border bg-[color:var(--panel-elevated)]/95 backdrop-blur-sm;
+    @apply rounded-[1.85rem] border bg-[color:var(--panel-elevated)]/95 backdrop-blur-sm;
     border-color: rgba(255, 255, 255, 0.66);
     box-shadow: var(--shadow-panel);
   }
@@ -231,6 +234,15 @@
 
   .dense-grid {
     @apply gap-3 md:gap-4;
+  }
+
+  .metric-grid {
+    @apply grid gap-2.5 md:gap-3;
+  }
+
+  .soft-divider {
+    @apply h-px w-full;
+    background: linear-gradient(90deg, rgba(23, 22, 19, 0), rgba(23, 22, 19, 0.08), rgba(23, 22, 19, 0));
   }
 
   .soft-scrollbar {

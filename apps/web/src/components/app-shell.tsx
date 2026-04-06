@@ -7,6 +7,8 @@ import type { LucideIcon } from "lucide-react";
 import {
   Bell,
   ChartLine,
+  CircleDot,
+  Command,
   Database,
   FileStack,
   ListChecks,
@@ -14,12 +16,12 @@ import {
   Search,
   SearchCode,
   ShieldCheck,
+  Sparkles,
   X,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { SectionHeading, StatusChip, SurfaceCard } from "@/components/workbench-ui";
 
 type NavItem = {
   href: string;
@@ -32,12 +34,20 @@ type HeaderAction = {
   label: string;
 };
 
-const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: ChartLine },
-  { href: "/reports/new", label: "Report Factory", icon: FileStack },
-  { href: "/evidence-center", label: "Evidence", icon: Database },
-  { href: "/retrieval-lab", label: "Retrieval Lab", icon: SearchCode },
-  { href: "/approval-center", label: "Publish Board", icon: ListChecks },
+const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
+  {
+    label: "Workspace",
+    items: [{ href: "/dashboard", label: "Dashboard", icon: ChartLine }],
+  },
+  {
+    label: "Factory",
+    items: [
+      { href: "/reports/new", label: "Report Factory", icon: FileStack },
+      { href: "/evidence-center", label: "Evidence", icon: Database },
+      { href: "/retrieval-lab", label: "Retrieval Lab", icon: SearchCode },
+      { href: "/approval-center", label: "Publish Board", icon: ListChecks },
+    ],
+  },
 ];
 
 function isActivePath(activePath: string, href: string): boolean {
@@ -45,42 +55,6 @@ function isActivePath(activePath: string, href: string): boolean {
     return activePath === "/dashboard";
   }
   return activePath.startsWith(href);
-}
-
-function NavigationBar({
-  activePath,
-  onNavigate,
-  compact = false,
-}: {
-  activePath: string;
-  onNavigate?: () => void;
-  compact?: boolean;
-}) {
-  return (
-    <nav className={cn("flex items-center gap-1 overflow-x-auto soft-scrollbar", compact && "flex-col items-stretch")}>
-      {NAV_ITEMS.map((item) => {
-        const Icon = item.icon;
-        const active = isActivePath(activePath, item.href);
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full px-3 py-2 text-[12px] font-medium transition-all",
-              compact && "justify-start rounded-[1rem] px-3.5 py-3",
-              active
-                ? "bg-primary text-primary-foreground shadow-[inset_0_-1px_0_rgba(255,255,255,0.08)]"
-                : "text-[color:var(--foreground-soft)] hover:bg-white/65 hover:text-foreground",
-            )}
-          >
-            <Icon className="size-4" />
-            <span>{item.label}</span>
-          </Link>
-        );
-      })}
-    </nav>
-  );
 }
 
 function breadcrumbsFromPath(activePath: string) {
@@ -93,6 +67,132 @@ function breadcrumbsFromPath(activePath: string) {
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join(" "),
     );
+}
+
+function NavigationColumn({
+  activePath,
+  onNavigate,
+}: {
+  activePath: string;
+  onNavigate?: () => void;
+}) {
+  return (
+    <div className="space-y-6">
+      {NAV_GROUPS.map((group) => (
+        <div key={group.label} className="space-y-2.5">
+          <p className="eyebrow px-2">{group.label}</p>
+          <div className="space-y-1">
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              const active = isActivePath(activePath, item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center justify-between rounded-[1.15rem] px-3 py-2.5 text-[13px] font-medium transition-all",
+                    active
+                      ? "bg-[color:var(--primary)] text-[color:var(--primary-foreground)] shadow-[0_14px_30px_rgba(29,27,25,0.16)]"
+                      : "text-[color:var(--foreground-soft)] hover:bg-white/72 hover:text-foreground",
+                  )}
+                >
+                  <span className="flex items-center gap-3">
+                    <span
+                      className={cn(
+                        "flex size-8 items-center justify-center rounded-full border",
+                        active
+                          ? "border-white/12 bg-white/10"
+                          : "border-[rgba(23,22,19,0.06)] bg-white/74",
+                      )}
+                    >
+                      <Icon className="size-4" />
+                    </span>
+                    <span>{item.label}</span>
+                  </span>
+                  {active ? <span className="size-2 rounded-full bg-[color:var(--accent)]" /> : null}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SidebarContent({
+  activePath,
+  onNavigate,
+}: {
+  activePath: string;
+  onNavigate?: () => void;
+}) {
+  return (
+    <>
+      <div className="rounded-[1.7rem] border border-white/55 bg-white/46 px-3.5 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)]">
+        <div className="flex items-center gap-3">
+          <div className="flex size-12 items-center justify-center rounded-[1.1rem] bg-[linear-gradient(135deg,var(--accent-soft),white)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+            <ShieldCheck className="size-5 text-[color:var(--accent-strong)]" />
+          </div>
+          <div>
+            <p className="text-[18px] font-semibold tracking-[-0.04em] text-foreground">Veni AI</p>
+            <p className="text-[12px] text-[color:var(--foreground-muted)]">Sustainability cockpit</p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="pill-dark">Factory light</span>
+          <span className="pill-surface">Inter only</span>
+        </div>
+      </div>
+
+      <div className="mt-8 flex-1">
+        <NavigationColumn activePath={activePath} onNavigate={onNavigate} />
+      </div>
+
+      <div className="space-y-3">
+        <div className="rounded-[1.8rem] bg-[linear-gradient(160deg,#201d1b_0%,#2d6d53_100%)] px-4 py-4 text-white shadow-[0_20px_48px_rgba(24,44,33,0.22)]">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-white/72">Factory pulse</p>
+              <p className="mt-2 text-[22px] font-semibold tracking-[-0.05em]">Controlled publish</p>
+            </div>
+            <span className="rounded-full border border-white/14 bg-white/8 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/82">
+              Live
+            </span>
+          </div>
+          <p className="mt-2 text-[12px] leading-5 text-white/76">
+            Connector freshness, verification discipline, and artifact completeness stay in one quiet surface.
+          </p>
+          <div className="mt-4 grid gap-2">
+            {["Sync", "Generate", "Review", "Package", "Publish"].map((label, index) => (
+              <div key={label} className="flex items-center justify-between rounded-[1rem] border border-white/10 bg-white/8 px-3 py-2">
+                <span className="text-[11px] font-medium text-white/82">{label}</span>
+                <span className="flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-white/66">
+                  <CircleDot className={cn("size-3", index >= 3 ? "text-white/50" : "text-[#9fe0b9]")} />
+                  stage
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-[1.5rem] border border-[rgba(23,22,19,0.06)] bg-white/74 px-3.5 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[color:var(--foreground-muted)]">Trust mode</p>
+          <div className="mt-2 grid gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[13px] font-medium text-foreground">Verified facts only</span>
+              <span className="pill-surface">Fail closed</span>
+            </div>
+            <p className="text-[11px] leading-5 text-[color:var(--foreground-soft)]">
+              Claims, calculations, and package artifacts stay bound to evidence before release.
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
 }
 
 export function AppShell({
@@ -115,98 +215,127 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-canvas px-3 py-4 md:px-5 md:py-6">
-      <div className="mx-auto max-w-[1480px] workbench-shell px-3 py-3 md:px-5 md:py-5">
-        <SurfaceCard className="px-3 py-3 md:px-4 md:py-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full border border-black/6 bg-white/75 px-3 py-2 text-[13px] font-semibold text-foreground">
-                <ShieldCheck className="size-4" />
-                <span>Veni AI</span>
-              </Link>
-              <div className="hidden xl:block">
-                <NavigationBar activePath={activePath} />
-              </div>
-            </div>
+      <div className="mx-auto max-w-[1540px] workbench-shell p-3 md:p-4">
+        <div className="grid gap-3 xl:grid-cols-[232px_minmax(0,1fr)]">
+          <aside className="rail-surface hidden min-h-[calc(100vh-4rem)] flex-col p-4 xl:flex">
+            <SidebarContent activePath={activePath} />
+          </aside>
 
-            <div className="hidden items-center gap-2 lg:flex">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[color:var(--foreground-muted)]" />
-                <input
-                  type="search"
-                  placeholder="Search runs, artifacts, connectors"
-                  className="h-10 w-72 rounded-full border border-[color:var(--border)] bg-white/70 pl-9 pr-3 text-[13px] text-foreground outline-none transition focus:border-[color:var(--accent-strong)] focus:ring-4 focus:ring-ring"
-                />
-              </div>
-              <Button type="button" variant="outline" size="icon-sm" aria-label="Notifications">
-                <Bell className="size-4" />
+          <section className="content-surface min-h-[calc(100vh-4rem)] p-3 md:p-4">
+            <div className="rounded-[1.75rem] border border-white/70 bg-white/52 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.84)]">
+              <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                className="xl:hidden"
+                onClick={() => setMobileOpen(true)}
+                aria-label="Open navigation"
+              >
+                <Menu className="size-4" />
               </Button>
-              <div className="pill-surface gap-2 px-3.5 py-2">
-                <span className="font-semibold text-foreground">Admin</span>
-                <StatusChip tone="good">Gate active</StatusChip>
-              </div>
-            </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              className="xl:hidden"
-              onClick={() => setMobileOpen(true)}
-              aria-label="Open navigation"
-            >
-              <Menu className="size-4" />
-            </Button>
-          </div>
-        </SurfaceCard>
-
-        {mobileOpen ? (
-          <div className="fixed inset-0 z-50 bg-[rgba(24,22,19,0.28)] backdrop-blur-sm xl:hidden">
-            <div className="ml-auto h-full w-[18rem] bg-[color:var(--workbench)] px-4 py-4 shadow-2xl">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[12px] uppercase tracking-[0.18em] text-[color:var(--foreground-muted)]">Navigation</p>
-                  <p className="mt-1 text-[18px] font-semibold text-foreground">Report Factory</p>
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[color:var(--foreground-muted)]" />
+                  <input
+                    type="search"
+                    placeholder="Search runs, artifacts, connectors"
+                    className="search-field"
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-[rgba(23,22,19,0.06)] bg-[color:var(--surface)] px-2 py-1 text-[10px] font-semibold text-[color:var(--foreground-muted)]">
+                    <Command className="mr-1 inline size-3" />
+                    F
+                  </span>
                 </div>
-                <Button type="button" variant="outline" size="icon-sm" onClick={() => setMobileOpen(false)}>
-                  <X className="size-4" />
+
+                <Button type="button" variant="outline" size="icon-sm" aria-label="Notifications">
+                  <Bell className="size-4" />
                 </Button>
-              </div>
-              <div className="mt-4">
-                <NavigationBar activePath={activePath} onNavigate={() => setMobileOpen(false)} compact />
+                <Button type="button" variant="outline" size="icon-sm" aria-label="Workspace status">
+                  <Sparkles className="size-4" />
+                </Button>
+
+                <div className="hidden items-center gap-3 rounded-full border border-[rgba(23,22,19,0.06)] bg-white/86 px-2 py-1.5 shadow-[0_10px_24px_rgba(31,29,26,0.05)] md:flex">
+                  <div className="flex size-9 items-center justify-center rounded-full bg-[linear-gradient(135deg,#efe8db,#d7e8dc)] text-[13px] font-semibold text-[color:var(--accent-strong)]">
+                    A
+                  </div>
+                  <div className="pr-2">
+                    <p className="text-[12px] font-semibold text-foreground">Admin Operator</p>
+                    <p className="text-[11px] text-[color:var(--foreground-muted)]">publish@veni.ai</p>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        ) : null}
 
-        <div className="mt-4 flex flex-col gap-4">
-          <SurfaceCard className="px-4 py-4 md:px-5 md:py-5">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2 text-[12px] text-[color:var(--foreground-muted)]">
-                  <span className="pill-surface">Command deck</span>
-                  {breadcrumbs.map((crumb, index) => (
-                    <span key={`${crumb}-${index}`} className="inline-flex items-center gap-2">
-                      {index === 0 ? null : <span>/</span>}
-                      <span>{crumb}</span>
-                    </span>
-                  ))}
-                </div>
-                <SectionHeading title={title} description={subtitle} />
-              </div>
-
-              {actions.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {actions.map((action, index) => (
-                    <Button key={action.href} asChild variant={index === 0 ? "default" : "outline"}>
-                      <Link href={action.href}>{action.label}</Link>
+            {mobileOpen ? (
+              <div className="fixed inset-0 z-50 bg-[rgba(20,19,18,0.22)] backdrop-blur-sm xl:hidden">
+                <div className="rail-surface ml-auto h-full w-[18.5rem] rounded-none rounded-l-[2rem] p-4 shadow-[0_30px_80px_rgba(25,24,22,0.28)]">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[16px] font-semibold text-foreground">Navigation</p>
+                    <Button type="button" variant="outline" size="icon-sm" onClick={() => setMobileOpen(false)}>
+                      <X className="size-4" />
                     </Button>
-                  ))}
+                  </div>
+                  <div className="mt-5 flex h-[calc(100%-3rem)] flex-col">
+                    <SidebarContent activePath={activePath} onNavigate={() => setMobileOpen(false)} />
+                  </div>
                 </div>
-              ) : null}
-            </div>
-          </SurfaceCard>
+              </div>
+            ) : null}
 
-          <div className="space-y-4">{children}</div>
+            <div className="mt-4 overflow-hidden rounded-[1.95rem] border border-[rgba(23,22,19,0.06)] bg-white/76 shadow-[0_14px_36px_rgba(41,38,31,0.05)]">
+              <div className="grid gap-0 xl:grid-cols-[1fr_auto]">
+                <div className="px-4 py-4 md:px-5">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-[color:var(--foreground-muted)]">
+                    <span className="pill-dark">Control room</span>
+                    {breadcrumbs.map((crumb, index) => (
+                      <span key={`${crumb}-${index}`} className="inline-flex items-center gap-2">
+                        {index === 0 ? null : <span>/</span>}
+                        <span>{crumb}</span>
+                      </span>
+                    ))}
+                  </div>
+                  <div>
+                    <h1 className="text-[30px] font-semibold tracking-[-0.06em] text-foreground md:text-[36px]">
+                      {title}
+                    </h1>
+                    <p className="mt-2 max-w-3xl text-[13px] leading-6 text-[color:var(--foreground-soft)]">
+                      {subtitle}
+                    </p>
+                  </div>
+                </div>
+
+                {actions.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {actions.map((action, index) => (
+                      <Button key={action.href} asChild variant={index === 0 ? "default" : "outline"}>
+                        <Link href={action.href}>{action.label}</Link>
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+                </div>
+                <div className="hidden min-w-[16rem] border-l border-[rgba(23,22,19,0.06)] bg-[linear-gradient(180deg,#f5efe5_0%,#f9f5ee_100%)] px-5 py-4 xl:block">
+                  <p className="eyebrow">Working model</p>
+                  <div className="mt-3 space-y-2.5">
+                    <div className="rounded-[1.1rem] border border-white/80 bg-white/74 px-3 py-2.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[color:var(--foreground-muted)]">Signal</p>
+                      <p className="mt-1 text-[14px] font-semibold text-foreground">Verified ESG operations</p>
+                    </div>
+                    <div className="rounded-[1.1rem] border border-white/80 bg-white/74 px-3 py-2.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[color:var(--foreground-muted)]">Delivery</p>
+                      <p className="mt-1 text-[14px] font-semibold text-foreground">Queued package pipeline</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-4">{children}</div>
+          </section>
         </div>
       </div>
     </div>
