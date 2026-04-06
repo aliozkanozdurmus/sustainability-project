@@ -31,15 +31,18 @@ type RunListResponse = {
 };
 
 function useWorkspace(): WorkspaceContext | null {
-  const [workspace, setWorkspace] = useState<WorkspaceContext | null>(null);
+  const [workspace] = useState<WorkspaceContext | null>(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    return getInitialWorkspaceContext();
+  });
 
   useEffect(() => {
-    const initialWorkspace = getInitialWorkspaceContext();
-    setWorkspace(initialWorkspace);
-    if (initialWorkspace) {
-      persistWorkspaceContext(initialWorkspace);
+    if (workspace) {
+      persistWorkspaceContext(workspace);
     }
-  }, []);
+  }, [workspace]);
 
   return workspace;
 }

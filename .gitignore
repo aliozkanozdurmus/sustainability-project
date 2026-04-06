@@ -99,3 +99,7 @@ apps/api/*.sqlite3
 output/*
 !output/playwright/
 !output/playwright/**
+output/playwright/downloads/
+output/playwright/manual-smoke/
+output/playwright/report/
+output/playwright/test-results/

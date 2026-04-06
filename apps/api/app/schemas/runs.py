@@ -40,6 +40,7 @@ class RunStatusResponse(BaseModel):
     triage_required: bool
     last_checkpoint_status: str
     last_checkpoint_at_utc: str
+    report_pdf: "ReportArtifactResponse | None" = None
 
 
 class RunListItem(BaseModel):
@@ -53,6 +54,7 @@ class RunListItem(BaseModel):
     triage_required: bool
     last_checkpoint_status: str
     last_checkpoint_at_utc: str | None
+    report_pdf: ReportArtifactResponse | None = None
 
 
 class RunListResponse(BaseModel):
@@ -90,6 +92,17 @@ class RunPublishRequest(BaseModel):
     project_id: str = Field(min_length=1)
 
 
+class ReportArtifactResponse(BaseModel):
+    artifact_id: str
+    artifact_type: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    checksum: str
+    created_at_utc: str
+    download_path: str
+
+
 class RunPublishBlocker(BaseModel):
     code: str
     message: str
@@ -107,6 +120,7 @@ class RunPublishResponse(BaseModel):
     published: bool
     blocked: bool
     blockers: list[RunPublishBlocker] = Field(default_factory=list)
+    report_pdf: ReportArtifactResponse | None = None
     generated_at_utc: str
 
 
@@ -137,3 +151,8 @@ class RunTriageReportResponse(BaseModel):
     section_code_filter: str | None = None
     items: list[RunTriageItem]
     generated_at_utc: str
+
+
+RunStatusResponse.model_rebuild()
+RunListItem.model_rebuild()
+RunPublishResponse.model_rebuild()

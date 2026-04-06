@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from io import BytesIO
 import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pdfplumber
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -19,6 +21,7 @@ from app.models.core import (
     ClaimCitation,
     Chunk,
     Project,
+    ReportArtifact,
     ReportRun,
     ReportSection,
     SourceDocument,
@@ -1063,6 +1066,14 @@ def test_publish_run_blocks_on_missing_citation_and_numeric_artifact(tmp_path: P
 
     app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
 
     try:
         with TestingSessionLocal() as session:
@@ -1126,11 +1137,13 @@ def test_publish_run_blocks_on_missing_citation_and_numeric_artifact(tmp_path: P
         blocker_codes = {item["code"] for item in detail["blockers"]}
         assert "MISSING_CITATIONS_FOR_CLAIMS" in blocker_codes
         assert "MISSING_CALCULATOR_ARTIFACTS" in blocker_codes
+        assert detail["report_pdf"] is None
 
         with TestingSessionLocal() as session:
             report_run = session.get(ReportRun, run_id)
             assert report_run is not None
             assert report_run.status == "completed"
+            assert session.query(ReportArtifact).filter(ReportArtifact.report_run_id == run_id).count() == 0
             blocked_events = (
                 session.query(AuditEvent)
                 .filter(
@@ -1142,6 +1155,7 @@ def test_publish_run_blocks_on_missing_citation_and_numeric_artifact(tmp_path: P
             )
             assert len(blocked_events) >= 1
     finally:
+        settings.local_blob_root = original_local_blob_root
         app.dependency_overrides.clear()
         engine.dispose()
 
@@ -1161,6 +1175,8 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
 
     app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
 
     try:
         with TestingSessionLocal() as session:
@@ -1272,11 +1288,33 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
         assert body["blockers"] == []
         assert body["run_attempt"] == 2
         assert body["run_execution_id"] == "exec_publish_2"
+        assert body["report_pdf"] is not None
+        assert body["report_pdf"]["artifact_type"] == "report_pdf"
+        assert body["report_pdf"]["filename"].endswith(".pdf")
+        assert body["report_pdf"]["size_bytes"] > 0
+
+        download_response = client.get(
+            f"/runs/{run_id}/report-pdf",
+            params={"tenant_id": tenant_id, "project_id": project_id},
+            headers={"x-user-role": "analyst"},
+        )
+        assert download_response.status_code == 200
+        assert download_response.headers["content-type"] == "application/pdf"
+        assert download_response.content.startswith(b"%PDF")
+        with pdfplumber.open(BytesIO(download_response.content)) as pdf:
+            first_page_text = pdf.pages[0].extract_text() or ""
+            full_text = "\n".join((page.extract_text() or "") for page in pdf.pages)
+        assert "Sustainability Report Demo" in first_page_text
+        assert "TSRS2-PUBLISH-SUCCESS" in full_text
+        assert "Citations:" in full_text
 
         with TestingSessionLocal() as session:
             report_run = session.get(ReportRun, run_id)
             assert report_run is not None
             assert report_run.status == "published"
+            artifacts = session.query(ReportArtifact).filter(ReportArtifact.report_run_id == run_id).all()
+            assert len(artifacts) == 1
+            assert artifacts[0].artifact_type == "report_pdf"
             events = (
                 session.query(AuditEvent)
                 .filter(
@@ -1287,6 +1325,249 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
                 .all()
             )
             assert len(events) >= 1
+            event_payload = events[-1].event_payload or {}
+            assert event_payload["report_pdf"]["artifact_type"] == "report_pdf"
+    finally:
+        settings.local_blob_root = original_local_blob_root
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_publish_run_records_failure_when_report_pdf_generation_fails(tmp_path: Path, monkeypatch) -> None:
+    db_file = tmp_path / "test_runs_publish_failure.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
+
+    try:
+        with TestingSessionLocal() as session:
+            tenant_id, project_id = _seed_tenant_and_project(session)
+
+            report_run = ReportRun(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                status="completed",
+                publish_ready=True,
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(report_run)
+            session.flush()
+
+            section = ReportSection(
+                report_run_id=report_run.id,
+                section_code="FAIL-PDF",
+                title="Fail PDF",
+                status="verified",
+                ordinal=1,
+            )
+            session.add(section)
+            session.flush()
+
+            source_document = SourceDocument(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                document_type="invoice",
+                filename="energy-2025.pdf",
+                storage_uri="obj://raw/energy-2025.pdf",
+                ingested_at=datetime.now(timezone.utc),
+                status="indexed",
+            )
+            session.add(source_document)
+            session.flush()
+
+            chunk = Chunk(
+                source_document_id=source_document.id,
+                chunk_index=0,
+                text="Scope 2 emissions decreased by 11.0 percent year-over-year.",
+                page=1,
+                section_label="TSRS2",
+                token_count=12,
+            )
+            session.add(chunk)
+            session.flush()
+
+            claim = Claim(
+                report_section_id=section.id,
+                statement="Scope 2 emissions decreased by 11.0 percent.",
+                status="pass",
+                confidence=0.96,
+            )
+            session.add(claim)
+            session.flush()
+
+            session.add(
+                ClaimCitation(
+                    claim_id=claim.id,
+                    source_document_id=source_document.id,
+                    chunk_id=chunk.id,
+                    span_start=0,
+                    span_end=20,
+                )
+            )
+            session.add(
+                CalculationRun(
+                    report_run_id=report_run.id,
+                    claim_id=claim.id,
+                    formula_name="ghg_scope2_market_based",
+                    code_hash="sha256:test-calc",
+                    inputs_ref="obj://calc-inputs/test-calc.json",
+                    output_value=110.0,
+                    output_unit="tCO2e",
+                    trace_log_ref="obj://calc-logs/test-calc.log",
+                    status="completed",
+                )
+            )
+            session.add(
+                VerificationResult(
+                    report_run_id=report_run.id,
+                    claim_id=claim.id,
+                    run_execution_id="exec_publish_3",
+                    run_attempt=3,
+                    verifier_version=VERIFIER_VERSION,
+                    status="PASS",
+                    reason="entailment_threshold_passed",
+                    severity="normal",
+                    confidence=0.97,
+                )
+            )
+            session.commit()
+            run_id = report_run.id
+
+        def failing_publish_artifact(*, db, report_run):
+            raise RuntimeError("artifact upload exploded")
+
+        monkeypatch.setattr("app.api.routes.runs.ensure_report_pdf_artifact", failing_publish_artifact)
+
+        response = client.post(
+            f"/runs/{run_id}/publish",
+            json={"tenant_id": tenant_id, "project_id": project_id},
+            headers={"x-user-role": "board_member"},
+        )
+        assert response.status_code == 500
+        detail = response.json()["detail"]
+        assert detail["error_code"] == "REPORT_PDF_GENERATION_FAILED"
+        assert "artifact upload exploded" in detail["reason"]
+
+        with TestingSessionLocal() as session:
+            report_run = session.get(ReportRun, run_id)
+            assert report_run is not None
+            assert report_run.status == "completed"
+            assert report_run.publish_ready is True
+            assert session.query(ReportArtifact).filter(ReportArtifact.report_run_id == run_id).count() == 0
+            failed_events = (
+                session.query(AuditEvent)
+                .filter(
+                    AuditEvent.report_run_id == run_id,
+                    AuditEvent.event_type == "publish",
+                    AuditEvent.event_name == "publish_failed",
+                )
+                .all()
+            )
+            assert len(failed_events) >= 1
+    finally:
+        settings.local_blob_root = original_local_blob_root
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_download_report_pdf_requires_read_access_and_existing_artifact(tmp_path: Path) -> None:
+    db_file = tmp_path / "test_runs_download_report_pdf.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
+
+    try:
+        storage_root = tmp_path / "storage" / "report-artifacts" / "ten" / "prj" / "runs"
+        storage_root.mkdir(parents=True, exist_ok=True)
+        pdf_path = storage_root / "manual-report.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4\nmanual pdf bytes\n")
+
+        with TestingSessionLocal() as session:
+            tenant_id, project_id = _seed_tenant_and_project(session)
+
+            missing_artifact_run = ReportRun(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                status="completed",
+                publish_ready=True,
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(missing_artifact_run)
+
+            downloadable_run = ReportRun(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                status="published",
+                publish_ready=True,
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(downloadable_run)
+            session.flush()
+
+            session.add(
+                ReportArtifact(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    report_run_id=downloadable_run.id,
+                    artifact_type="report_pdf",
+                    filename="manual-report.pdf",
+                    content_type="application/pdf",
+                    storage_uri=f"file://{pdf_path.as_posix()}",
+                    size_bytes=pdf_path.stat().st_size,
+                    checksum="sha256:test",
+                )
+            )
+            session.commit()
+            missing_run_id = missing_artifact_run.id
+            downloadable_run_id = downloadable_run.id
+
+        missing_response = client.get(
+            f"/runs/{missing_run_id}/report-pdf",
+            params={"tenant_id": tenant_id, "project_id": project_id},
+            headers={"x-user-role": "analyst"},
+        )
+        assert missing_response.status_code == 404
+
+        allowed_response = client.get(
+            f"/runs/{downloadable_run_id}/report-pdf",
+            params={"tenant_id": tenant_id, "project_id": project_id},
+            headers={"x-user-role": "analyst"},
+        )
+        assert allowed_response.status_code == 200
+        assert allowed_response.content.startswith(b"%PDF")
+
+        denied_response = client.get(
+            f"/runs/{downloadable_run_id}/report-pdf",
+            params={"tenant_id": tenant_id, "project_id": project_id},
+            headers={"x-user-role": "board_member"},
+        )
+        assert denied_response.status_code == 403
     finally:
         app.dependency_overrides.clear()
         engine.dispose()
@@ -1307,6 +1588,8 @@ def test_publish_run_is_idempotent_when_already_published(tmp_path: Path) -> Non
 
     app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
 
     try:
         with TestingSessionLocal() as session:
@@ -1322,16 +1605,31 @@ def test_publish_run_is_idempotent_when_already_published(tmp_path: Path) -> Non
             session.commit()
             run_id = report_run.id
 
-        response = client.post(
+        first_response = client.post(
             f"/runs/{run_id}/publish",
             json={"tenant_id": tenant_id, "project_id": project_id},
             headers={"x-user-role": "admin"},
         )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["published"] is True
-        assert body["blocked"] is False
-        assert body["report_run_status"] == "published"
+        assert first_response.status_code == 200
+        first_body = first_response.json()
+        assert first_body["published"] is True
+        assert first_body["blocked"] is False
+        assert first_body["report_run_status"] == "published"
+        assert first_body["report_pdf"] is not None
+
+        second_response = client.post(
+            f"/runs/{run_id}/publish",
+            json={"tenant_id": tenant_id, "project_id": project_id},
+            headers={"x-user-role": "admin"},
+        )
+        assert second_response.status_code == 200
+        second_body = second_response.json()
+        assert second_body["report_pdf"] is not None
+        assert second_body["report_pdf"]["artifact_id"] == first_body["report_pdf"]["artifact_id"]
+
+        with TestingSessionLocal() as session:
+            assert session.query(ReportArtifact).filter(ReportArtifact.report_run_id == run_id).count() == 1
     finally:
+        settings.local_blob_root = original_local_blob_root
         app.dependency_overrides.clear()
         engine.dispose()

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import re
-from typing import Literal
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from app.models.core import (
     ClaimCitation,
     Chunk,
     Project,
+    ReportArtifact,
     ReportRun,
     ReportSection,
     SourceDocument,
@@ -29,6 +30,7 @@ from app.orchestration.executor import execute_workflow
 from app.orchestration.graph_scaffold import initialize_workflow, transition_failure, transition_success
 from app.schemas.auth import CurrentUser
 from app.schemas.runs import (
+    ReportArtifactResponse,
     RunAdvanceRequest,
     RunCreateRequest,
     RunExecuteRequest,
@@ -42,11 +44,44 @@ from app.schemas.runs import (
     RunTriageItem,
     RunTriageReportResponse,
 )
+from app.services.report_pdf import (
+    REPORT_PDF_ARTIFACT_TYPE,
+    download_report_artifact_bytes,
+    ensure_report_pdf_artifact,
+    get_report_artifact,
+)
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 RUN_MUTATION_ROLES = ("admin", "compliance_manager", "analyst")
 RUN_READ_ROLES = (*RUN_MUTATION_ROLES, "auditor_readonly")
 RUN_PUBLISH_ROLES = ("admin", "compliance_manager", "board_member")
+
+
+def _to_report_artifact_response(artifact: ReportArtifact) -> ReportArtifactResponse:
+    return ReportArtifactResponse(
+        artifact_id=artifact.id,
+        artifact_type=artifact.artifact_type,
+        filename=artifact.filename,
+        content_type=artifact.content_type,
+        size_bytes=artifact.size_bytes,
+        checksum=artifact.checksum,
+        created_at_utc=artifact.created_at.isoformat(),
+        download_path=(
+            f"/runs/{artifact.report_run_id}/report-pdf"
+            f"?tenant_id={artifact.tenant_id}&project_id={artifact.project_id}"
+        ),
+    )
+
+
+def _get_report_pdf_response(
+    *,
+    db: Session,
+    report_run_id: str,
+) -> ReportArtifactResponse | None:
+    artifact = get_report_artifact(db=db, report_run_id=report_run_id, artifact_type=REPORT_PDF_ARTIFACT_TYPE)
+    if artifact is None:
+        return None
+    return _to_report_artifact_response(artifact)
 
 
 @router.get("", response_model=RunListResponse, status_code=status.HTTP_200_OK)
@@ -95,6 +130,17 @@ async def list_runs(
         .all()
     )
 
+    artifact_map: dict[str, ReportArtifactResponse] = {}
+    run_ids = [run.id for run in rows]
+    if run_ids:
+        artifacts = db.scalars(
+            select(ReportArtifact).where(
+                ReportArtifact.report_run_id.in_(run_ids),
+                ReportArtifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE,
+            )
+        ).all()
+        artifact_map = {artifact.report_run_id: _to_report_artifact_response(artifact) for artifact in artifacts}
+
     checkpoint_store = get_checkpoint_store()
     items: list[RunListItem] = []
     for run in rows:
@@ -126,6 +172,7 @@ async def list_runs(
                 triage_required=triage_required,
                 last_checkpoint_status=last_checkpoint_status,
                 last_checkpoint_at_utc=last_checkpoint_at_utc,
+                report_pdf=artifact_map.get(run.id),
             )
         )
 
@@ -134,6 +181,7 @@ async def list_runs(
 
 def _build_run_status_response(
     *,
+    db: Session,
     report_run: ReportRun,
     checkpoint: CheckpointRecord,
 ) -> RunStatusResponse:
@@ -153,6 +201,7 @@ def _build_run_status_response(
         triage_required=triage_required,
         last_checkpoint_status=checkpoint["status"],
         last_checkpoint_at_utc=checkpoint["created_at_utc"],
+        report_pdf=_get_report_pdf_response(db=db, report_run_id=report_run.id),
     )
 
 
@@ -367,6 +416,68 @@ def _evaluate_publish_gate(
             )
 
     return blockers, run_attempt, run_execution_id
+
+
+def _get_latest_run_execution_context(
+    *,
+    db: Session,
+    report_run_id: str,
+) -> tuple[int | None, str | None]:
+    run_attempt = db.scalar(
+        select(func.max(VerificationResult.run_attempt)).where(
+            VerificationResult.report_run_id == report_run_id,
+        )
+    )
+    run_execution_id = None
+    if isinstance(run_attempt, int) and run_attempt > 0:
+        run_execution_id = db.scalar(
+            select(VerificationResult.run_execution_id)
+            .where(
+                VerificationResult.report_run_id == report_run_id,
+                VerificationResult.run_attempt == run_attempt,
+            )
+            .order_by(VerificationResult.checked_at.desc(), VerificationResult.id.desc())
+            .limit(1)
+        )
+    return (int(run_attempt) if isinstance(run_attempt, int) and run_attempt > 0 else None, run_execution_id)
+
+
+def _record_publish_failure(
+    *,
+    db: Session,
+    report_run: ReportRun,
+    run_id: str,
+    run_attempt: int | None,
+    run_execution_id: str | None,
+    published: bool,
+    exc: Exception,
+) -> None:
+    failure_payload = {
+        "schema_version": PUBLISH_GATE_SCHEMA_VERSION,
+        "run_id": run_id,
+        "blocked": False,
+        "published": published,
+        "run_attempt": run_attempt,
+        "run_execution_id": run_execution_id,
+        "error_code": "REPORT_PDF_GENERATION_FAILED",
+        "reason": str(exc),
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    db.add(
+        AuditEvent(
+            tenant_id=report_run.tenant_id,
+            project_id=report_run.project_id,
+            report_run_id=report_run.id,
+            event_type="publish",
+            event_name="publish_failed",
+            event_payload=failure_payload,
+        )
+    )
+    db.commit()
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=failure_payload,
+    ) from exc
 
 
 def _resolve_run_attempt(
@@ -742,7 +853,7 @@ async def create_run(
     latest = checkpoint_store.load_latest_checkpoint(run_id=report_run.id)
     if latest is None:
         raise HTTPException(status_code=500, detail="Checkpoint initialization failed.")
-    return _build_run_status_response(report_run=report_run, checkpoint=latest)
+    return _build_run_status_response(db=db, report_run=report_run, checkpoint=latest)
 
 
 @router.post("/{run_id}/advance", response_model=RunStatusResponse, status_code=status.HTTP_200_OK)
@@ -797,7 +908,7 @@ async def advance_run(
     latest_after = checkpoint_store.load_latest_checkpoint(run_id=run_id)
     if latest_after is None:
         raise HTTPException(status_code=500, detail="Checkpoint update failed.")
-    return _build_run_status_response(report_run=report_run, checkpoint=latest_after)
+    return _build_run_status_response(db=db, report_run=report_run, checkpoint=latest_after)
 
 
 @router.post("/{run_id}/execute", response_model=RunExecuteResponse, status_code=status.HTTP_200_OK)
@@ -900,7 +1011,7 @@ async def execute_run(
     db.commit()
     db.refresh(report_run)
 
-    status_payload = _build_run_status_response(report_run=report_run, checkpoint=outcome.last_checkpoint)
+    status_payload = _build_run_status_response(db=db, report_run=report_run, checkpoint=outcome.last_checkpoint)
     return RunExecuteResponse(
         **status_payload.model_dump(),
         executed_steps=outcome.executed_steps,
@@ -929,33 +1040,33 @@ async def publish_run(
     if report_run is None:
         raise HTTPException(status_code=404, detail="Run not found for tenant/project.")
 
+    run_attempt, run_execution_id = _get_latest_run_execution_context(db=db, report_run_id=report_run.id)
+
     if report_run.status == "published":
-        run_attempt = db.scalar(
-            select(func.max(VerificationResult.run_attempt)).where(
-                VerificationResult.report_run_id == report_run.id,
+        try:
+            report_pdf = ensure_report_pdf_artifact(db=db, report_run=report_run)
+        except Exception as exc:
+            _record_publish_failure(
+                db=db,
+                report_run=report_run,
+                run_id=run_id,
+                run_attempt=run_attempt,
+                run_execution_id=run_execution_id,
+                published=True,
+                exc=exc,
             )
-        )
-        run_execution_id = None
-        if isinstance(run_attempt, int) and run_attempt > 0:
-            run_execution_id = db.scalar(
-                select(VerificationResult.run_execution_id)
-                .where(
-                    VerificationResult.report_run_id == report_run.id,
-                    VerificationResult.run_attempt == run_attempt,
-                )
-                .order_by(VerificationResult.checked_at.desc(), VerificationResult.id.desc())
-                .limit(1)
-            )
+        db.commit()
         return RunPublishResponse(
             schema_version=PUBLISH_GATE_SCHEMA_VERSION,
             run_id=run_id,
-            run_attempt=int(run_attempt) if isinstance(run_attempt, int) and run_attempt > 0 else None,
+            run_attempt=run_attempt,
             run_execution_id=run_execution_id,
             report_run_status=report_run.status,
             publish_ready=report_run.publish_ready,
             published=True,
             blocked=False,
             blockers=[],
+            report_pdf=_to_report_artifact_response(report_pdf),
             generated_at_utc=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -968,6 +1079,7 @@ async def publish_run(
             "run_attempt": run_attempt,
             "run_execution_id": run_execution_id,
             "blockers": [item.model_dump() for item in blockers],
+            "report_pdf": None,
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         }
         db.add(
@@ -986,6 +1098,19 @@ async def publish_run(
             detail=detail_payload,
         )
 
+    try:
+        report_pdf = ensure_report_pdf_artifact(db=db, report_run=report_run)
+    except Exception as exc:
+        _record_publish_failure(
+            db=db,
+            report_run=report_run,
+            run_id=run_id,
+            run_attempt=run_attempt,
+            run_execution_id=run_execution_id,
+            published=False,
+            exc=exc,
+        )
+
     report_run.status = "published"
     report_run.publish_ready = True
     if report_run.completed_at is None:
@@ -998,6 +1123,7 @@ async def publish_run(
         "published": True,
         "run_attempt": run_attempt,
         "run_execution_id": run_execution_id,
+        "report_pdf": _to_report_artifact_response(report_pdf).model_dump(),
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     db.add(
@@ -1023,7 +1149,53 @@ async def publish_run(
         published=True,
         blocked=False,
         blockers=[],
+        report_pdf=_to_report_artifact_response(report_pdf),
         generated_at_utc=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@router.get(
+    "/{run_id}/report-pdf",
+    status_code=status.HTTP_200_OK,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+async def download_run_report_pdf(
+    run_id: str,
+    tenant_id: str,
+    project_id: str,
+    user: CurrentUser = Depends(require_roles(*RUN_READ_ROLES)),
+    db: Session = Depends(get_db),
+) -> Response:
+    _ = user
+    report_run = db.scalar(
+        select(ReportRun).where(
+            ReportRun.id == run_id,
+            ReportRun.tenant_id == tenant_id,
+            ReportRun.project_id == project_id,
+        )
+    )
+    if report_run is None:
+        raise HTTPException(status_code=404, detail="Run not found for tenant/project.")
+
+    artifact = get_report_artifact(db=db, report_run_id=report_run.id, artifact_type=REPORT_PDF_ARTIFACT_TYPE)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Published report PDF not found for run.")
+
+    try:
+        payload = download_report_artifact_bytes(artifact)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not load report PDF artifact. {exc}",
+        ) from exc
+
+    return Response(
+        content=payload,
+        media_type=artifact.content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{artifact.filename}"',
+            "Content-Length": str(len(payload)),
+        },
     )
 
 

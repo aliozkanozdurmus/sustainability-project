@@ -203,7 +203,7 @@ def test_alembic_verification_results_run_context_migration(tmp_path: Path) -> N
         engine = sa.create_engine(database_url)
         _seed_pre_migration_verification_row(engine)
 
-        command.upgrade(config, "20260305_0003")
+        command.upgrade(config, "20260305_0004")
 
         inspector = sa.inspect(engine)
         column_map = {column["name"]: column for column in inspector.get_columns("verification_results")}
@@ -218,6 +218,15 @@ def test_alembic_verification_results_run_context_migration(tmp_path: Path) -> N
 
         audit_index_names = {index["name"] for index in inspector.get_indexes("audit_events")}
         assert "ix_audit_events_report_event_occurred_at" in audit_index_names
+
+        report_artifact_columns = {column["name"] for column in inspector.get_columns("report_artifacts")}
+        assert {"tenant_id", "project_id", "report_run_id", "artifact_type", "filename", "storage_uri"} <= report_artifact_columns
+        report_artifact_indexes = {index["name"] for index in inspector.get_indexes("report_artifacts")}
+        assert "ix_report_artifacts_report_run_id" in report_artifact_indexes
+        report_artifact_unique_sets = {
+            tuple(constraint["column_names"]) for constraint in inspector.get_unique_constraints("report_artifacts")
+        }
+        assert ("report_run_id", "artifact_type") in report_artifact_unique_sets
 
         unique_sets = {tuple(constraint["column_names"]) for constraint in inspector.get_unique_constraints("verification_results")}
         assert ("claim_id", "run_execution_id") in unique_sets
@@ -246,6 +255,10 @@ def test_alembic_verification_results_run_context_migration(tmp_path: Path) -> N
             with pytest.raises(sa.exc.IntegrityError):
                 session.commit()
             session.rollback()
+
+        command.downgrade(config, "20260305_0003")
+        downgraded_artifact_tables = sa.inspect(engine).get_table_names()
+        assert "report_artifacts" not in downgraded_artifact_tables
 
         command.downgrade(config, "20260305_0002")
         downgraded_once = sa.inspect(engine)

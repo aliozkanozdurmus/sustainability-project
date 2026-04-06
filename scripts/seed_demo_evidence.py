@@ -140,29 +140,24 @@ def _upsert_local_index_entries(project_id: str, source_document_ids: set[str], 
     target.write_text(json.dumps(existing, ensure_ascii=True, indent=2), encoding="utf-8")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Seed deterministic demo ESG evidence into the local project store.")
-    parser.add_argument("--tenant-id", required=True)
-    parser.add_argument("--project-id", required=True)
-    args = parser.parse_args()
-
+def seed_demo_evidence(*, tenant_id: str, project_id: str) -> dict[str, object]:
     blob_storage = get_blob_storage_service()
     index_payloads: list[dict] = []
     source_document_ids: set[str] = set()
 
     with SessionLocal() as db:
-        tenant = db.scalar(select(Tenant).where(Tenant.id == args.tenant_id))
+        tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
         if tenant is None:
-            raise SystemExit(f"Tenant not found: {args.tenant_id}")
+            raise SystemExit(f"Tenant not found: {tenant_id}")
 
         project = db.scalar(
             select(Project).where(
-                Project.id == args.project_id,
-                Project.tenant_id == args.tenant_id,
+                Project.id == project_id,
+                Project.tenant_id == tenant_id,
             )
         )
         if project is None:
-            raise SystemExit(f"Project not found for tenant: {args.project_id}")
+            raise SystemExit(f"Project not found for tenant: {project_id}")
 
         for demo in DEMO_DOCUMENTS:
             source_document = db.scalar(
@@ -279,8 +274,16 @@ def main() -> int:
 
         db.commit()
 
-    _upsert_local_index_entries(args.project_id, source_document_ids, index_payloads)
-    print(json.dumps({"seeded_documents": len(DEMO_DOCUMENTS), "project_id": args.project_id}, ensure_ascii=True))
+    _upsert_local_index_entries(project_id, source_document_ids, index_payloads)
+    return {"seeded_documents": len(DEMO_DOCUMENTS), "project_id": project_id, "tenant_id": tenant_id}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Seed deterministic demo ESG evidence into the local project store.")
+    parser.add_argument("--tenant-id", required=True)
+    parser.add_argument("--project-id", required=True)
+    args = parser.parse_args()
+    print(json.dumps(seed_demo_evidence(tenant_id=args.tenant_id, project_id=args.project_id), ensure_ascii=True))
     return 0
 
 

@@ -9,6 +9,7 @@
     "test": "turbo run test",
     "build": "turbo run build",
     "e2e": "turbo run e2e",
+    "e2e:manual-smoke": "pnpm --filter web e2e:manual-smoke",
     "generate:openapi": "python -c \"import json,sys;from pathlib import Path;api_root=Path('apps/api').resolve();sys.path.insert(0,str(api_root));from app.main import app;Path('apps/api/openapi.json').write_text(json.dumps(app.openapi(), indent=2), encoding='utf-8')\"",
     "generate:types": "openapi-typescript apps/api/openapi.json --output packages/shared-types/src/generated/api-types.ts",
     "contracts:sync": "pnpm run generate:openapi && pnpm run generate:types",

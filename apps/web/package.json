@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "node ./scripts/run-playwright-e2e.mjs",
+    "e2e:manual-smoke": "node ./scripts/run-playwright-manual-smoke.mjs"
   },
   "dependencies": {
     "@sustainability/shared-types": "workspace:*",
@@ -22,6 +24,7 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

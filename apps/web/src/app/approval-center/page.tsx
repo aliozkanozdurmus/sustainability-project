@@ -7,6 +7,7 @@ import {
   AlertOctagon,
   CheckCircle2,
   Clock3,
+  Download,
   Loader2,
   PlayCircle,
   RefreshCw,
@@ -18,12 +19,25 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import {
   buildApiHeaders,
+  buildRunReportPdfPath,
+  getResponseErrorMessage,
   getApiBaseUrl,
   getInitialWorkspaceContext,
   parseJsonOrThrow,
   persistWorkspaceContext,
   type WorkspaceContext,
 } from "@/lib/api/client";
+
+type ReportArtifact = {
+  artifact_id: string;
+  artifact_type: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  checksum: string;
+  created_at_utc: string;
+  download_path: string;
+};
 
 type RunListItem = {
   run_id: string;
@@ -36,6 +50,7 @@ type RunListItem = {
   triage_required: boolean;
   last_checkpoint_status: string;
   last_checkpoint_at_utc: string | null;
+  report_pdf: ReportArtifact | null;
 };
 
 type RunListResponse = {
@@ -63,6 +78,52 @@ type TriageResponse = {
   total_items: number;
   items: TriageItem[];
 };
+
+type RunPublishResponse = {
+  report_pdf: ReportArtifact | null;
+};
+
+function formatUiErrorMessage(rawMessage: string): string {
+  const trimmed = rawMessage.trim();
+  if (!trimmed) {
+    return rawMessage;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      blockers?: Array<{ code?: string; message?: string }>;
+      reason?: string;
+    };
+    if (Array.isArray(parsed.blockers) && parsed.blockers.length > 0) {
+      const blockerSummary = parsed.blockers
+        .map((blocker) => {
+          const code = blocker.code?.trim();
+          const message = blocker.message?.trim();
+          if (code && message) {
+            return `${code}: ${message}`;
+          }
+          return code || message || null;
+        })
+        .filter((value): value is string => Boolean(value))
+        .join(" | ");
+      if (blockerSummary) {
+        return `Publish blocked. ${blockerSummary}`;
+      }
+    }
+    if (typeof parsed.reason === "string" && parsed.reason.trim().length > 0) {
+      return parsed.reason;
+    }
+  } catch {
+    return rawMessage;
+  }
+  return rawMessage;
+}
+
+function toUiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    return formatUiErrorMessage(error.message);
+  }
+  return fallback;
+}
 
 function readInitialWorkspace(): WorkspaceContext | null {
   if (typeof window === "undefined") return null;
@@ -147,7 +208,7 @@ function ApprovalCenterPageContent() {
       const payload = await parseJsonOrThrow<RunListResponse>(response);
       setRuns(payload.items);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load runs.");
+      setError(toUiErrorMessage(err, "Failed to load runs."));
     } finally {
       setRunsBusy(false);
     }
@@ -177,7 +238,7 @@ function ApprovalCenterPageContent() {
       setNotice(`Run ${runId} executed.`);
       await loadRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Execute failed.");
+      setError(toUiErrorMessage(err, "Execute failed."));
     } finally {
       setBusyRunId(null);
     }
@@ -208,7 +269,7 @@ function ApprovalCenterPageContent() {
       );
       await loadRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Approval update failed.");
+      setError(toUiErrorMessage(err, "Approval update failed."));
     } finally {
       setBusyRunId(null);
     }
@@ -229,11 +290,53 @@ function ApprovalCenterPageContent() {
           project_id: workspace.projectId,
         }),
       });
-      await parseJsonOrThrow(response);
-      setNotice(`Run ${runId} published.`);
+      const payload = await parseJsonOrThrow<RunPublishResponse>(response);
+      setNotice(
+        payload.report_pdf
+          ? `Run ${runId} published. PDF is ready for download.`
+          : `Run ${runId} published.`,
+      );
       await loadRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Publish failed.");
+      setError(toUiErrorMessage(err, "Publish failed."));
+    } finally {
+      setBusyRunId(null);
+    }
+  }
+
+  async function handleDownloadPdf(runId: string, reportPdf: ReportArtifact | null) {
+    if (!workspace) return;
+    setBusyRunId(runId);
+    setError(null);
+    setNotice(null);
+    try {
+      const apiBase = getApiBaseUrl();
+      const path = reportPdf?.download_path ?? buildRunReportPdfPath(workspace, runId);
+      const response = await fetch(`${apiBase}${path}`, {
+        headers: buildApiHeaders(workspace.tenantId, {
+          includeJsonContentType: false,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await getResponseErrorMessage(response));
+      }
+
+      const blob = await response.blob();
+      if (blob.size <= 0) {
+        throw new Error("Downloaded PDF is empty.");
+      }
+
+      const objectUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = reportPdf?.filename ?? `report-${runId}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
+      setNotice(`PDF download started for run ${runId}.`);
+    } catch (err) {
+      setError(toUiErrorMessage(err, "PDF download failed."));
     } finally {
       setBusyRunId(null);
     }
@@ -254,7 +357,7 @@ function ApprovalCenterPageContent() {
       const payload = await parseJsonOrThrow<TriageResponse>(response);
       setTriage(payload);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Triage fetch failed.");
+      setError(toUiErrorMessage(err, "Triage fetch failed."));
     } finally {
       setBusyRunId(null);
     }
@@ -285,13 +388,19 @@ function ApprovalCenterPageContent() {
       )}
 
       {error ? (
-        <div className="mb-4 rounded-xl border border-destructive/35 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <div
+          className="mb-4 whitespace-pre-wrap rounded-xl border border-destructive/35 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          data-testid="approval-center-error"
+        >
           {error}
         </div>
       ) : null}
 
       {notice ? (
-        <div className="mb-4 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
+        <div
+          className="mb-4 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
+          data-testid="approval-center-notice"
+        >
           {notice}
         </div>
       ) : null}
@@ -354,7 +463,10 @@ function ApprovalCenterPageContent() {
           </Button>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full border-separate border-spacing-y-2 text-left text-sm">
+          <table
+            className="min-w-full border-separate border-spacing-y-2 text-left text-sm"
+            data-testid="run-queue-table"
+          >
             <thead className="text-muted-foreground text-xs uppercase tracking-[0.16em]">
               <tr>
                 <th className="px-3 py-2">Run</th>
@@ -367,12 +479,18 @@ function ApprovalCenterPageContent() {
             </thead>
             <tbody>
               {runs.map((row) => (
-                <tr key={row.run_id} className="bg-muted/35">
+                <tr key={row.run_id} className="bg-muted/35" data-testid={`run-row-${row.run_id}`}>
                   <td className="rounded-l-lg px-3 py-3 text-xs">{row.run_id}</td>
-                  <td className="px-3 py-3">{row.report_run_status}</td>
-                  <td className="px-3 py-3">{row.active_node}</td>
+                  <td className="px-3 py-3" data-testid={`run-${row.run_id}-status`}>
+                    {row.report_run_status}
+                  </td>
+                  <td className="px-3 py-3" data-testid={`run-${row.run_id}-node`}>
+                    {row.active_node}
+                  </td>
                   <td className="px-3 py-3">{row.triage_required ? "yes" : "no"}</td>
-                  <td className="px-3 py-3">{row.publish_ready ? "yes" : "no"}</td>
+                  <td className="px-3 py-3" data-testid={`run-${row.run_id}-publish-ready`}>
+                    {row.publish_ready ? "yes" : "no"}
+                  </td>
                   <td className="rounded-r-lg px-3 py-3">
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -381,6 +499,7 @@ function ApprovalCenterPageContent() {
                         variant="outline"
                         onClick={() => void handleExecute(row.run_id)}
                         disabled={busyRunId === row.run_id || !workspace}
+                        data-testid={`run-${row.run_id}-execute`}
                       >
                         <PlayCircle className="h-4 w-4" />
                         Execute
@@ -391,6 +510,7 @@ function ApprovalCenterPageContent() {
                         variant="outline"
                         onClick={() => void handleLoadTriage(row.run_id)}
                         disabled={busyRunId === row.run_id || !workspace}
+                        data-testid={`run-${row.run_id}-triage`}
                       >
                         <RefreshCw className="h-4 w-4" />
                         Triage
@@ -400,10 +520,24 @@ function ApprovalCenterPageContent() {
                         size="sm"
                         onClick={() => void handlePublish(row.run_id)}
                         disabled={busyRunId === row.run_id || !workspace}
+                        data-testid={`run-${row.run_id}-publish`}
                       >
                         <Send className="h-4 w-4" />
                         Publish
                       </Button>
+                      {row.report_pdf || row.report_run_status === "published" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleDownloadPdf(row.run_id, row.report_pdf)}
+                          disabled={busyRunId === row.run_id || !workspace}
+                          data-testid={`run-${row.run_id}-download-pdf`}
+                        >
+                          <Download className="h-4 w-4" />
+                          Download PDF
+                        </Button>
+                      ) : null}
                       {row.active_node === "HUMAN_APPROVAL" ? (
                         <Button
                           type="button"
@@ -411,6 +545,7 @@ function ApprovalCenterPageContent() {
                           variant="outline"
                           onClick={() => void handleHumanApproval(row.run_id, "approved")}
                           disabled={busyRunId === row.run_id || !workspace}
+                          data-testid={`run-${row.run_id}-approve`}
                         >
                           <CheckCircle2 className="h-4 w-4" />
                           Approve
@@ -423,6 +558,7 @@ function ApprovalCenterPageContent() {
                           variant="outline"
                           onClick={() => void handleHumanApproval(row.run_id, "rejected")}
                           disabled={busyRunId === row.run_id || !workspace}
+                          data-testid={`run-${row.run_id}-reject`}
                         >
                           <AlertOctagon className="h-4 w-4" />
                           Reject

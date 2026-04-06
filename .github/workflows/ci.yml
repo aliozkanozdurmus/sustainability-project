@@ -72,6 +72,47 @@ jobs:
       - name: Run API tests
         run: pytest apps/api/tests
 
+  e2e-smoke:
+    needs:
+      - web
+      - api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter web exec playwright install --with-deps chromium
+
+      - name: Run publish-to-PDF E2E smoke
+        run: pnpm --filter web e2e -- --grep happy-path
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: output/playwright
+          if-no-files-found: ignore
+
+      - name: Stop Docker services
+        if: always()
+        run: docker compose down -v
+
   worker:
     runs-on: ubuntu-latest
     steps:

@@ -79,6 +79,49 @@ const INITIAL_STATE: WizardState = {
   approvalSlaDays: "5",
 };
 
+function resolveFrameworkTargets(form: WizardState): string[] {
+  if (form.framework === "TSRS+CSRD") {
+    return ["TSRS1", "TSRS2", "CSRD"];
+  }
+  if (form.framework === "TSRS") {
+    return ["TSRS1", "TSRS2"];
+  }
+  return ["CSRD"];
+}
+
+function buildRetrievalTasks(form: WizardState, frameworkTarget: string[]) {
+  return frameworkTarget.map((framework, index) => {
+    if (framework === "TSRS1") {
+      return {
+        task_id: `task_${index + 1}_tsrs1`,
+        framework,
+        section_target: "TSRS1 Governance and Risk Management",
+        query_text: `TSRS1 governance and risk management sustainability committee oversight ${form.reportingYear}`,
+        retrieval_mode: "hybrid" as const,
+        top_k: 3,
+      };
+    }
+    if (framework === "TSRS2") {
+      return {
+        task_id: `task_${index + 1}_tsrs2`,
+        framework,
+        section_target: "TSRS2 Climate and Energy",
+        query_text: `TSRS2 climate and energy scope 2 electricity emissions renewable electricity ${form.reportingYear}`,
+        retrieval_mode: "hybrid" as const,
+        top_k: 3,
+      };
+    }
+    return {
+      task_id: `task_${index + 1}_csrd`,
+      framework,
+      section_target: "CSRD Workforce and Supply Chain",
+      query_text: `CSRD workforce supply chain lost time injury supplier screening ${form.reportingYear}`,
+      retrieval_mode: "hybrid" as const,
+      top_k: 3,
+    };
+  });
+}
+
 function completionScore(form: WizardState): number {
   const checklist = [
     form.legalName.trim().length > 1,
@@ -190,14 +233,14 @@ export default function NewReportPage() {
     setIsSubmitting(true);
     try {
       const apiBase = getApiBaseUrl();
+      const frameworkTarget = resolveFrameworkTargets(form);
       const response = await fetch(`${apiBase}/runs`, {
         method: "POST",
         headers: buildApiHeaders(workspace.tenantId),
         body: JSON.stringify({
           tenant_id: workspace.tenantId,
           project_id: workspace.projectId,
-          framework_target:
-            form.framework === "TSRS+CSRD" ? ["TSRS1", "TSRS2", "CSRD"] : [form.framework],
+          framework_target: frameworkTarget,
           active_reg_pack_version: "core-pack-v1",
           scope_decision: {
             reporting_year: form.reportingYear,
@@ -206,6 +249,7 @@ export default function NewReportPage() {
             sustainability_owner: form.sustainabilityOwner,
             board_approver: form.boardApprover,
             approval_sla_days: Number(form.approvalSlaDays),
+            retrieval_tasks: buildRetrievalTasks(form, frameworkTarget),
           },
         }),
       });
@@ -278,16 +322,27 @@ export default function NewReportPage() {
           </label>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" onClick={handleBootstrapWorkspace} disabled={workspaceBusy}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleBootstrapWorkspace}
+            disabled={workspaceBusy}
+            data-testid="workspace-bootstrap-button"
+          >
             {workspaceBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
             {workspaceBusy ? "Preparing..." : "Create / Select Workspace"}
           </Button>
           {workspace ? (
-            <p className="text-xs text-emerald-700 dark:text-emerald-300">
+            <p
+              className="text-xs text-emerald-700 dark:text-emerald-300"
+              data-testid="workspace-context-status"
+            >
               tenant_id={workspace.tenantId} - project_id={workspace.projectId}
             </p>
           ) : (
-            <p className="text-xs text-muted-foreground">No workspace selected yet.</p>
+            <p className="text-xs text-muted-foreground" data-testid="workspace-context-status">
+              No workspace selected yet.
+            </p>
           )}
         </div>
       </section>
@@ -448,7 +503,12 @@ export default function NewReportPage() {
             </Button>
 
             {isLastStep ? (
-              <Button type="button" onClick={handleCreateRun} disabled={isSubmitting}>
+              <Button
+                type="button"
+                onClick={handleCreateRun}
+                disabled={isSubmitting}
+                data-testid="create-report-run-button"
+              >
                 {isSubmitting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
@@ -470,7 +530,10 @@ export default function NewReportPage() {
           </div>
 
           {submitError ? (
-            <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div
+              className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              data-testid="new-report-error"
+            >
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <p>{submitError}</p>
@@ -479,7 +542,10 @@ export default function NewReportPage() {
           ) : null}
 
           {submitNotice ? (
-            <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+            <div
+              className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300"
+              data-testid="new-report-notice"
+            >
               {submitNotice}
             </div>
           ) : null}

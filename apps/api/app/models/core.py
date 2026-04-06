@@ -212,6 +212,33 @@ class ReportRun(IdTimestampMixin, Base):
     publish_ready: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
+class ReportArtifact(IdTimestampMixin, Base):
+    __tablename__ = "report_artifacts"
+    __table_args__ = (UniqueConstraint("report_run_id", "artifact_type"),)
+
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    report_run_id: Mapped[str] = mapped_column(
+        ForeignKey("report_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    artifact_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    filename: Mapped[str] = mapped_column(String(512), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    storage_uri: Mapped[str] = mapped_column(String(1024), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    checksum: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+
+
 class RetrievalRun(IdTimestampMixin, Base):
     __tablename__ = "retrieval_runs"
 

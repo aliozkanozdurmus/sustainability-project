@@ -10,7 +10,7 @@ export type UserRole =
   | "auditor_readonly"
   | "board_member";
 
-const WORKSPACE_STORAGE_KEY = "veni_workspace_context_v1";
+export const WORKSPACE_STORAGE_KEY = "veni_workspace_context_v1";
 
 export function getApiBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_BASE_URL) {
@@ -97,30 +97,38 @@ export function buildApiHeaders(
   return headers;
 }
 
+export function buildRunReportPdfPath(workspace: WorkspaceContext, runId: string): string {
+  return `/runs/${encodeURIComponent(runId)}/report-pdf?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}`;
+}
+
+export async function getResponseErrorMessage(response: Response): Promise<string> {
+  const raw = await response.text();
+  if (raw) {
+    let payload: { detail?: unknown; message?: string } | null = null;
+    try {
+      payload = JSON.parse(raw) as { detail?: unknown; message?: string };
+    } catch {
+      payload = null;
+    }
+    if (payload) {
+      if (typeof payload.detail === "string" && payload.detail.trim().length > 0) {
+        return payload.detail;
+      }
+      if (payload.detail && typeof payload.detail === "object") {
+        return JSON.stringify(payload.detail, null, 2);
+      }
+      if (typeof payload.message === "string" && payload.message.trim().length > 0) {
+        return payload.message;
+      }
+    }
+    return raw;
+  }
+  return `Request failed with status ${response.status}`;
+}
+
 export async function parseJsonOrThrow<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const raw = await response.text();
-    if (raw) {
-      let payload: { detail?: unknown; message?: string } | null = null;
-      try {
-        payload = JSON.parse(raw) as { detail?: unknown; message?: string };
-      } catch {
-        payload = null;
-      }
-      if (payload) {
-        if (typeof payload.detail === "string" && payload.detail.trim().length > 0) {
-          throw new Error(payload.detail);
-        }
-        if (payload.detail && typeof payload.detail === "object") {
-          throw new Error(JSON.stringify(payload.detail, null, 2));
-        }
-        if (typeof payload.message === "string" && payload.message.trim().length > 0) {
-          throw new Error(payload.message);
-        }
-      }
-      throw new Error(raw);
-    }
-    throw new Error(`Request failed with status ${response.status}`);
+    throw new Error(await getResponseErrorMessage(response));
   }
   return (await response.json()) as T;
 }
