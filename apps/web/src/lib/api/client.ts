@@ -129,6 +129,10 @@ export function buildRunPackageStatusPath(workspace: WorkspaceContext, runId: st
   return `/runs/${encodeURIComponent(runId)}/package-status?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}`;
 }
 
+export function buildDashboardOverviewPath(workspace: WorkspaceContext): string {
+  return `/dashboard/overview?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}`;
+}
+
 export async function getResponseErrorMessage(response: Response): Promise<string> {
   const raw = await response.text();
   if (raw) {

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   Bell,
@@ -9,16 +10,16 @@ import {
   Database,
   FileStack,
   ListChecks,
-  PanelLeft,
-  SearchCode,
+  Menu,
   Search,
+  SearchCode,
   ShieldCheck,
-  UserCircle2,
   X,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { SectionHeading, StatusChip, SurfaceCard } from "@/components/workbench-ui";
 
 type NavItem = {
   href: string;
@@ -33,10 +34,10 @@ type HeaderAction = {
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: ChartLine },
-  { href: "/reports/new", label: "New Report", icon: FileStack },
-  { href: "/evidence-center", label: "Evidence Center", icon: Database },
+  { href: "/reports/new", label: "Report Factory", icon: FileStack },
+  { href: "/evidence-center", label: "Evidence", icon: Database },
   { href: "/retrieval-lab", label: "Retrieval Lab", icon: SearchCode },
-  { href: "/approval-center", label: "Approval Center", icon: ListChecks },
+  { href: "/approval-center", label: "Publish Board", icon: ListChecks },
 ];
 
 function isActivePath(activePath: string, href: string): boolean {
@@ -46,56 +47,52 @@ function isActivePath(activePath: string, href: string): boolean {
   return activePath.startsWith(href);
 }
 
-function normalizeSegment(segment: string): string {
-  return segment
-    .split("-")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-type AppShellProps = {
-  activePath: string;
-  title: string;
-  subtitle: string;
-  children: ReactNode;
-  actions?: HeaderAction[];
-};
-
-function SidebarNav({
+function NavigationBar({
   activePath,
-  compact = false,
   onNavigate,
+  compact = false,
 }: {
   activePath: string;
-  compact?: boolean;
   onNavigate?: () => void;
+  compact?: boolean;
 }) {
   return (
-    <nav className="space-y-1">
-      <p className="px-2 pb-2 text-xs font-medium tracking-wide text-sidebar-foreground/70">
-        Overview
-      </p>
+    <nav className={cn("flex items-center gap-1 overflow-x-auto soft-scrollbar", compact && "flex-col items-stretch")}>
       {NAV_ITEMS.map((item) => {
         const Icon = item.icon;
-        const isActive = isActivePath(activePath, item.href);
+        const active = isActivePath(activePath, item.href);
         return (
           <Link
             key={item.href}
             href={item.href}
             onClick={onNavigate}
             className={cn(
-              "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-2 rounded-md px-2 py-2 text-sm text-sidebar-foreground transition-colors",
-              isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
-              compact && "justify-center px-0",
+              "inline-flex items-center gap-2 rounded-full px-3 py-2 text-[12px] font-medium transition-all",
+              compact && "justify-start rounded-[1rem] px-3.5 py-3",
+              active
+                ? "bg-primary text-primary-foreground shadow-[inset_0_-1px_0_rgba(255,255,255,0.08)]"
+                : "text-[color:var(--foreground-soft)] hover:bg-white/65 hover:text-foreground",
             )}
           >
-            <Icon className="size-4 shrink-0" />
-            {!compact ? <span>{item.label}</span> : null}
+            <Icon className="size-4" />
+            <span>{item.label}</span>
           </Link>
         );
       })}
     </nav>
   );
+}
+
+function breadcrumbsFromPath(activePath: string) {
+  return activePath
+    .split("/")
+    .filter(Boolean)
+    .map((segment) =>
+      segment
+        .split("-")
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" "),
+    );
 }
 
 export function AppShell({
@@ -104,145 +101,99 @@ export function AppShell({
   subtitle,
   children,
   actions = [],
-}: AppShellProps) {
-  const [collapsed, setCollapsed] = useState(false);
+}: {
+  activePath: string;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+  actions?: HeaderAction[];
+}) {
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const breadcrumbs = useMemo(() => {
-    const segments = activePath.split("/").filter(Boolean);
-    if (segments.length === 0) {
-      return ["Dashboard"];
-    }
-    return segments.map(normalizeSegment);
-  }, [activePath]);
-
-  const sidebarWidthClass = collapsed ? "w-16" : "w-64";
+  const breadcrumbs = useMemo(() => breadcrumbsFromPath(pathname || activePath), [activePath, pathname]);
 
   return (
-    <div className="group/sidebar-wrapper bg-sidebar flex min-h-svh w-full md:flex-row-reverse">
-      <aside
-        className={cn(
-          "border-sidebar-border bg-sidebar text-sidebar-foreground hidden border-l transition-[width] duration-200 ease-linear md:flex md:flex-col",
-          sidebarWidthClass,
-        )}
-      >
-        <div className="border-sidebar-border border-b p-2">
-          <Link
-            href="/dashboard"
-            className="hover:bg-sidebar-accent flex items-center gap-2 rounded-md px-2 py-2 transition-colors"
-          >
-            <ShieldCheck className="size-5 shrink-0" />
-            {!collapsed ? (
-              <div>
-                <p className="text-sm font-semibold">Veni AI Sustainability Cockpit</p>
-                <p className="text-xs text-sidebar-foreground/70">Board-ready ESG</p>
+    <div className="min-h-screen bg-canvas px-3 py-4 md:px-5 md:py-6">
+      <div className="mx-auto max-w-[1480px] workbench-shell px-3 py-3 md:px-5 md:py-5">
+        <SurfaceCard className="px-3 py-3 md:px-4 md:py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full border border-black/6 bg-white/75 px-3 py-2 text-[13px] font-semibold text-foreground">
+                <ShieldCheck className="size-4" />
+                <span>Veni AI</span>
+              </Link>
+              <div className="hidden xl:block">
+                <NavigationBar activePath={activePath} />
               </div>
-            ) : null}
-          </Link>
-        </div>
-
-        <div className="flex-1 overflow-auto p-2">
-          <SidebarNav activePath={activePath} compact={collapsed} />
-        </div>
-
-        <div className="border-sidebar-border border-t p-2">
-          <div
-            className={cn(
-              "rounded-md border border-sidebar-border bg-background/70 p-2 text-xs text-muted-foreground",
-              collapsed && "p-1 text-center",
-            )}
-          >
-            {!collapsed ? "Verifier gate active" : "VG"}
-          </div>
-        </div>
-      </aside>
-
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setMobileOpen(false)}
-            aria-label="Close navigation"
-          />
-          <aside className="bg-sidebar text-sidebar-foreground border-sidebar-border relative z-10 ml-auto h-full w-[18rem] border-l p-2">
-            <div className="mb-2 flex items-center justify-between rounded-md px-2 py-2">
-              <div>
-                <p className="text-sm font-semibold">Veni AI Sustainability Cockpit</p>
-                <p className="text-xs text-sidebar-foreground/70">Board-ready ESG</p>
-              </div>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                onClick={() => setMobileOpen(false)}
-              >
-                <X className="size-4" />
-              </Button>
             </div>
-            <SidebarNav activePath={activePath} onNavigate={() => setMobileOpen(false)} />
-          </aside>
-        </div>
-      ) : null}
 
-      <main className="bg-background relative flex w-full flex-1 flex-col">
-        <header className="border-border bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4 backdrop-blur">
-          <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 lg:flex">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[color:var(--foreground-muted)]" />
+                <input
+                  type="search"
+                  placeholder="Search runs, artifacts, connectors"
+                  className="h-10 w-72 rounded-full border border-[color:var(--border)] bg-white/70 pl-9 pr-3 text-[13px] text-foreground outline-none transition focus:border-[color:var(--accent-strong)] focus:ring-4 focus:ring-ring"
+                />
+              </div>
+              <Button type="button" variant="outline" size="icon-sm" aria-label="Notifications">
+                <Bell className="size-4" />
+              </Button>
+              <div className="pill-surface gap-2 px-3.5 py-2">
+                <span className="font-semibold text-foreground">Admin</span>
+                <StatusChip tone="good">Gate active</StatusChip>
+              </div>
+            </div>
+
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="icon-sm"
-              className="-ml-1"
-              onClick={() => {
-                if (window.matchMedia("(max-width: 767px)").matches) {
-                  setMobileOpen(true);
-                  return;
-                }
-                setCollapsed((previous) => !previous);
-              }}
+              className="xl:hidden"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open navigation"
             >
-              <PanelLeft className="size-4" />
-            </Button>
-            <div className="bg-border h-4 w-px" />
-            <div className="text-muted-foreground flex items-center gap-1 text-sm">
-              <Link href="/dashboard" className="hover:text-foreground transition-colors">
-                Home
-              </Link>
-              {breadcrumbs.map((crumb, index) => (
-                <span key={`${crumb}-${index}`} className="flex items-center gap-1">
-                  <span>/</span>
-                  <span className="text-foreground">{crumb}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="relative hidden md:block">
-              <Search className="text-muted-foreground absolute top-1/2 left-2 size-4 -translate-y-1/2" />
-              <input
-                type="search"
-                placeholder="Search"
-                className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring h-9 w-56 rounded-md border pl-8 text-sm outline-none focus-visible:ring-2"
-              />
-            </div>
-            <Button type="button" size="icon-sm" variant="outline">
-              <Bell className="size-4" />
-            </Button>
-            <Button type="button" variant="outline" size="sm" className="gap-2">
-              <UserCircle2 className="size-4" />
-              Admin
+              <Menu className="size-4" />
             </Button>
           </div>
-        </header>
+        </SurfaceCard>
 
-        <div className="h-[calc(100dvh-4rem)] overflow-auto">
-          <div className="flex flex-1 flex-col p-4 md:px-6">
-            <div className="mb-4 flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-                <p className="text-muted-foreground mt-1 text-sm">{subtitle}</p>
+        {mobileOpen ? (
+          <div className="fixed inset-0 z-50 bg-[rgba(24,22,19,0.28)] backdrop-blur-sm xl:hidden">
+            <div className="ml-auto h-full w-[18rem] bg-[color:var(--workbench)] px-4 py-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[12px] uppercase tracking-[0.18em] text-[color:var(--foreground-muted)]">Navigation</p>
+                  <p className="mt-1 text-[18px] font-semibold text-foreground">Report Factory</p>
+                </div>
+                <Button type="button" variant="outline" size="icon-sm" onClick={() => setMobileOpen(false)}>
+                  <X className="size-4" />
+                </Button>
               </div>
+              <div className="mt-4">
+                <NavigationBar activePath={activePath} onNavigate={() => setMobileOpen(false)} compact />
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-4 flex flex-col gap-4">
+          <SurfaceCard className="px-4 py-4 md:px-5 md:py-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2 text-[12px] text-[color:var(--foreground-muted)]">
+                  <span className="pill-surface">Command deck</span>
+                  {breadcrumbs.map((crumb, index) => (
+                    <span key={`${crumb}-${index}`} className="inline-flex items-center gap-2">
+                      {index === 0 ? null : <span>/</span>}
+                      <span>{crumb}</span>
+                    </span>
+                  ))}
+                </div>
+                <SectionHeading title={title} description={subtitle} />
+              </div>
+
               {actions.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {actions.map((action, index) => (
@@ -253,10 +204,11 @@ export function AppShell({
                 </div>
               ) : null}
             </div>
-            {children}
-          </div>
+          </SurfaceCard>
+
+          <div className="space-y-4">{children}</div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

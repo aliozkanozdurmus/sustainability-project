@@ -190,12 +190,12 @@ function ApprovalCenterFallback() {
   return (
     <AppShell
       activePath="/approval-center"
-      title="Report Factory Kontrol Merkezi"
-      subtitle="Operasyon verileri yükleniyor..."
-      actions={[{ href: "/reports/new", label: "Yeni Rapor Run'ı" }]}
+      title="Controlled Publish Board"
+      subtitle="Loading report factory operations..."
+      actions={[{ href: "/reports/new", label: "New Report Run" }]}
     >
       <div className="rounded-xl border bg-card px-4 py-6 text-sm text-muted-foreground">
-        Report factory yükleniyor...
+        Loading report factory surface...
       </div>
     </AppShell>
   );
@@ -304,9 +304,9 @@ function ApprovalCenterPageContent() {
       );
       const payload = await parseJsonOrThrow<RunPackageStatus>(response);
       setPackageState(payload);
-      setNotice(`Package durumu güncellendi: ${payload.package_status}.`);
+      setNotice(`Package status refreshed: ${payload.package_status}.`);
     } catch (err) {
-      setError(toUiErrorMessage(err, "Package durumu alınamadı."));
+      setError(toUiErrorMessage(err, "Package status could not be loaded."));
     } finally {
       setBusyRunId(null);
     }
@@ -387,8 +387,8 @@ function ApprovalCenterPageContent() {
       const payload = await parseJsonOrThrow<RunPublishResponse>(response);
       setNotice(
         payload.published
-          ? `Run ${runId} publish edildi. Paket tamamlandı ve PDF indirilebilir.`
-          : `Run ${runId} controlled publish kuyruğuna alındı. Aşama: ${payload.estimated_stage ?? payload.package_status}.`,
+          ? `Run ${runId} is now published. The package is complete and the PDF is ready to download.`
+          : `Run ${runId} entered the controlled publish queue. Stage: ${payload.estimated_stage ?? payload.package_status}.`,
       );
       setPackageState({
         run_id: runId,
@@ -447,9 +447,9 @@ function ApprovalCenterPageContent() {
       anchor.click();
       anchor.remove();
       window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
-      setNotice(`İndirme başlatıldı: ${anchor.download}`);
+      setNotice(`Download started: ${anchor.download}`);
     } catch (err) {
-      setError(toUiErrorMessage(err, "Artifact indirilemedi."));
+      setError(toUiErrorMessage(err, "Artifact download failed."));
     } finally {
       setBusyRunId(null);
     }
@@ -479,23 +479,23 @@ function ApprovalCenterPageContent() {
   return (
     <AppShell
       activePath="/approval-center"
-      title="Report Factory Kontrol Merkezi"
-      subtitle="Run operasyonu, package üretimi, triage ve controlled publish bu ekrandan yönetilir."
-      actions={[{ href: "/reports/new", label: "Yeni Report Run" }]}
+      title="Controlled Publish Board"
+      subtitle="Manage run execution, package generation, verifier triage, and the controlled publish handoff from one premium board."
+      actions={[{ href: "/reports/new", label: "New Report Run" }]}
     >
       {created ? (
-        <div className="mb-4 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-          Run oluşturuldu ({mode === "api" ? "API" : "bilinmeyen"} mod)
+        <div className="mb-4 rounded-[1.35rem] border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
+          Run created ({mode === "api" ? "API" : "unknown"} mode)
           {createdRunId ? ` - ${createdRunId}` : ""}.
         </div>
       ) : null}
 
       {!workspace ? (
-        <div className="mb-4 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-          Workspace seçili değil. Önce &quot;Yeni Report Run&quot; ekranından tenant ve proje seç.
+        <div className="mb-4 rounded-[1.35rem] border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+          No workspace selected yet. Open &quot;New Report Run&quot; first to pick a tenant and project.
         </div>
       ) : (
-        <div className="mb-4 rounded-xl border bg-card px-4 py-3 text-xs text-muted-foreground">
+        <div className="mb-4 rounded-[1.35rem] border border-[color:var(--border)] bg-white/72 px-4 py-3 text-xs text-muted-foreground">
           tenant_id={workspace.tenantId} | project_id={workspace.projectId}
         </div>
       )}
@@ -518,7 +518,7 @@ function ApprovalCenterPageContent() {
         </div>
       ) : null}
 
-      <article className="relative overflow-hidden rounded-xl border shadow-sm">
+      <article className="relative overflow-hidden rounded-[1.75rem] border border-[color:var(--border)] shadow-[var(--shadow-soft)]">
         <div className="absolute inset-0">
           <Image
             src="/images/approval-hero.png"
@@ -535,45 +535,45 @@ function ApprovalCenterPageContent() {
             Report Factory Pipeline
           </p>
           <p className="mt-2 max-w-xl text-sm">
-            Sync, execute, triage, package ve controlled publish akışını tek yerden izle.
+            Watch sync, execute, triage, package, and controlled publish from one compact operations surface.
           </p>
         </div>
       </article>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <article className="rounded-xl border bg-card p-4 shadow-sm">
+        <article className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/72 p-4 shadow-[var(--shadow-soft)]">
           <div className="flex items-center gap-2">
             <Clock3 className="h-4 w-4 text-amber-600 dark:text-amber-300" />
-            <p className="text-sm">Bekleyen Run</p>
+            <p className="text-sm">Pending Runs</p>
           </div>
           <p className="mt-3 text-2xl font-semibold">{runStats.pending}</p>
-          <p className="text-muted-foreground text-sm">Henüz publish edilmemiş run&apos;lar</p>
+          <p className="text-muted-foreground text-sm">Runs that have not reached publish yet</p>
         </article>
-        <article className="rounded-xl border bg-card p-4 shadow-sm">
+        <article className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/72 p-4 shadow-[var(--shadow-soft)]">
           <div className="flex items-center gap-2">
             <AlertOctagon className="h-4 w-4 text-destructive" />
-            <p className="text-sm">Triage Gerekli</p>
+            <p className="text-sm">Triage Pressure</p>
           </div>
           <p className="mt-3 text-2xl font-semibold">{runStats.slaRisk}</p>
-          <p className="text-muted-foreground text-sm">Verifier kaynaklı bloklar</p>
+          <p className="text-muted-foreground text-sm">Verifier-driven blocks that still need attention</p>
         </article>
-        <article className="rounded-xl border bg-card p-4 shadow-sm">
+        <article className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/72 p-4 shadow-[var(--shadow-soft)]">
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-sky-600 dark:text-sky-300" />
-            <p className="text-sm">Package Çalışan</p>
+            <p className="text-sm">Packaging Active</p>
           </div>
           <p className="mt-3 text-2xl font-semibold">{runStats.packageRunning}</p>
-          <p className="text-muted-foreground text-sm">Aktif package üretim işleri</p>
+          <p className="text-muted-foreground text-sm">Packaging jobs currently in flight</p>
           <p className="text-muted-foreground text-xs">queued + running</p>
         </article>
       </div>
 
-      <article className="mt-4 rounded-xl border bg-card p-5 shadow-sm">
+      <article className="mt-4 rounded-[1.75rem] border border-[color:var(--border)] bg-white/72 p-5 shadow-[var(--shadow-soft)]">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Run Kuyruğu</h2>
+          <h2 className="text-lg font-semibold">Run Queue</h2>
           <Button type="button" variant="outline" onClick={() => void loadRuns()} disabled={runsBusy || !workspace}>
             {runsBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Yenile
+            Refresh
           </Button>
         </div>
         <div className="overflow-x-auto">
@@ -587,10 +587,10 @@ function ApprovalCenterPageContent() {
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">Node</th>
                 <th className="px-3 py-2">Package</th>
-                <th className="px-3 py-2">Kalite</th>
+                <th className="px-3 py-2">Quality</th>
                 <th className="px-3 py-2">Triage</th>
                 <th className="px-3 py-2">Publish Ready</th>
-                <th className="px-3 py-2">Son Sync</th>
+                <th className="px-3 py-2">Last Sync</th>
                 <th className="px-3 py-2">Actions</th>
               </tr>
             </thead>
@@ -612,7 +612,7 @@ function ApprovalCenterPageContent() {
                   <td className="px-3 py-3" data-testid={`run-${row.run_id}-publish-ready`}>
                     {row.publish_ready ? "yes" : "no"}
                   </td>
-                  <td className="px-3 py-3">{row.latest_sync_at_utc ? new Date(row.latest_sync_at_utc).toLocaleString("tr-TR") : "-"}</td>
+                  <td className="px-3 py-3">{row.latest_sync_at_utc ? new Date(row.latest_sync_at_utc).toLocaleString("en-GB") : "-"}</td>
                   <td className="rounded-r-lg px-3 py-3">
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -710,7 +710,7 @@ function ApprovalCenterPageContent() {
               {runs.length === 0 ? (
                 <tr>
                   <td className="rounded-lg px-3 py-4 text-sm text-muted-foreground" colSpan={9}>
-                    Mevcut workspace için run bulunamadı.
+                    No runs were found for the current workspace.
                   </td>
                 </tr>
               ) : null}
@@ -720,15 +720,15 @@ function ApprovalCenterPageContent() {
       </article>
 
       {packageState ? (
-        <article className="mt-4 rounded-xl border bg-card p-5 shadow-sm">
+        <article className="mt-4 rounded-[1.75rem] border border-[color:var(--border)] bg-white/72 p-5 shadow-[var(--shadow-soft)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold">Package Durumu - {packageState.run_id}</h2>
+              <h2 className="text-lg font-semibold">Package Status - {packageState.run_id}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Status: {packageState.package_status}
                 {packageState.current_stage ? ` | Stage: ${packageState.current_stage}` : ""}
                 {packageState.report_quality_score !== null
-                  ? ` | Kalite: ${packageState.report_quality_score.toFixed(1)}`
+                  ? ` | Quality: ${packageState.report_quality_score.toFixed(1)}`
                   : ""}
               </p>
             </div>
@@ -743,7 +743,7 @@ function ApprovalCenterPageContent() {
               ) : (
                 <RefreshCw className="h-4 w-4" />
               )}
-              Package Yenile
+              Refresh Package
             </Button>
           </div>
           <div className="mt-4 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
@@ -760,7 +760,7 @@ function ApprovalCenterPageContent() {
                   </div>
                 ))}
                 {packageState.stage_history.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Henüz stage geçmişi yok.</p>
+                  <p className="text-sm text-muted-foreground">No stage history available yet.</p>
                 ) : null}
               </div>
             </div>
@@ -783,12 +783,12 @@ function ApprovalCenterPageContent() {
                       disabled={busyRunId === packageState.run_id || !workspace}
                     >
                       <Download className="h-4 w-4" />
-                      İndir
+                      Download
                     </Button>
                   </div>
                 ))}
                 {packageState.artifacts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Henüz artifact üretilmedi.</p>
+                  <p className="text-sm text-muted-foreground">No artifacts have been produced yet.</p>
                 ) : null}
               </div>
             </div>
@@ -797,7 +797,7 @@ function ApprovalCenterPageContent() {
       ) : null}
 
       {triage ? (
-        <article className="mt-4 rounded-xl border bg-card p-5 shadow-sm">
+        <article className="mt-4 rounded-[1.75rem] border border-[color:var(--border)] bg-white/72 p-5 shadow-[var(--shadow-soft)]">
           <h2 className="text-lg font-semibold">Triage Snapshot - {triage.run_id}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             FAIL: {triage.fail_count} | UNSURE: {triage.unsure_count} | CRITICAL FAIL: {triage.critical_fail_count}
@@ -821,10 +821,10 @@ function ApprovalCenterPageContent() {
         </article>
       ) : null}
 
-      <div className="mt-4 rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">
+      <div className="mt-4 rounded-[1.35rem] border border-emerald-500/35 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4" />
-          Controlled publish yalnızca execute tamamlandıktan ve triage temizlendikten sonra tetiklenmeli.
+          Trigger controlled publish only after execute is complete and the triage board is clear.
         </div>
       </div>
     </AppShell>

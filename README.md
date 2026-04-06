@@ -1,546 +1,268 @@
 # Veni AI Sustainability Cockpit
 
-Production-grade, multi-tenant B2B SaaS platform for **zero-hallucination sustainability reporting** aligned with **TSRS 1/2** and **CSRD/ESRS**.
+ERP-to-package report factory for controlled, evidence-grounded sustainability reporting.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/aliozkanozdurmus/sustainability-project/ci.yml?branch=main&label=ci)](https://github.com/aliozkanozdurmus/sustainability-project/actions/workflows/ci.yml)
 ![Monorepo](https://img.shields.io/badge/monorepo-Turborepo-111827)
-![Frontend](https://img.shields.io/badge/frontend-Next.js%2016-000000)
-![Backend](https://img.shields.io/badge/backend-FastAPI%20%2B%20Python%203.12-0ea5e9)
-![AI Policy](https://img.shields.io/badge/ai-Azure%20OpenAI%20only-0078d4)
+![Connectors](https://img.shields.io/badge/connectors-3%20ERP%20inputs-374151)
+![Package Pipeline](https://img.shields.io/badge/package%20pipeline-9%20stages-0f766e)
+![Tracked Artifacts](https://img.shields.io/badge/artifacts-6%20tracked-1d4ed8)
 
-Status: Draft architecture baseline  
-Date baseline: 2026-03-10  
-Primary documentation set:
-- `README.md`
-- `AGENTS.md`
-- `docs/architecture/public-baseline.md`
-- `docs/configuration/runtime-configuration.md`
-- `docs/runbooks/docker-development.md`
-- `docs/runbooks/example-deployment.md`
+This repository shows the current product state: connector provisioning, canonical fact sync, report generation, review, package tracking, controlled publish, and final artifact download.
 
----
-
-## Product Preview
-
-Current UI screens from the repository:
-
-![Board dashboard overview](./output/playwright/dashboard.png)
-
-| Report Builder | Retrieval Lab |
-|---|---|
-| ![New report flow](./output/playwright/new-report.png) | ![Retrieval lab](./output/playwright/retrieval-lab.png) |
-
-| Approval Center | Evidence Center |
-|---|---|
-| ![Approval center](./output/playwright/approval-center.png) | ![Evidence center](./output/playwright/evidence-center.png) |
-
----
-
-## 1) What This Platform Does
-
-This platform lets enterprise teams upload ESG evidence, run deterministic multi-agent generation, and publish audit-ready sustainability report packages with claim-level traceability.
-
-Core promise:
+Trust promise:
 - No evidence, no claim.
-- No deterministic calculator artifact, no numeric claim.
+- No calculator artifact, no numeric claim.
 - No verifier pass, no publish.
 
-Primary business outcomes:
-- Reduce reporting cycle from weeks to days.
-- Achieve claim citation coverage at or above 98%.
-- Keep numeric consistency at 100% on golden datasets.
-- Enable board-ready dashboards and publication-ready PDF outputs.
+![Veni AI dashboard](./output/playwright/dashboard.png)
 
----
+| 3 connectors | 9 package stages | 6 tracked artifacts | 17-page preview pack |
+| --- | --- | --- | --- |
+| SAP / OData, Logo Tiger / SQL View, Netsis / REST | `sync -> normalize -> outline -> write -> verify -> charts_images -> compose -> package -> controlled_publish` | `report_pdf`, `visual_manifest`, `citation_index`, `calculation_appendix`, `coverage_matrix`, `assumption_register` | Real preview assets live in `output/pdf/latest`, `output/pdf/generated`, and Playwright download outputs |
 
-## 2) Target Users
+## Report Factory Journey
 
-- Sustainability teams (authors and reviewers)
-- Finance and risk teams (data owners)
-- Internal audit and compliance teams
-- External assurance partners (auditor-readonly scope)
-- Board and governance committees (approval and sign-off)
+Current product flow:
 
----
+`Create -> Sync -> Generate -> Review -> Package -> Controlled Publish -> Download`
 
-## 3) Hard Product Rules
-
-- AI policy is locked to **Azure AI Foundry + Azure OpenAI only**.
-- Model policy is locked to:
-  - `gpt-5.2` (generation + verifier)
-  - `text-embedding-3-large` (embeddings)
-- Database policy is locked to **Neon PostgreSQL** (`*.neon.tech`) in production.
-- Local Docker development may use the bundled PostgreSQL service only when `ALLOW_LOCAL_DEV_DATABASE=true`.
-- Every claim must include citation references.
-- Every numeric claim must reference calculator artifacts.
-- Verifier statuses are strict: `PASS`, `FAIL`, `UNSURE`.
-- Any critical verifier `FAIL` blocks publishing.
-- Cross-tenant isolation is mandatory at API, query, and storage layers.
-
----
-
-## 4) System Architecture (High Level)
+`POST /runs/{id}/publish` is tracked as a package step, not as an instant PDF download shortcut. The API creates or resumes a package job, returns `package_job_id`, `package_status`, `estimated_stage`, and artifact metadata, and the final bundle is downloaded from run artifacts after package completion.
 
 ```mermaid
 flowchart LR
-  A["Web App (Next.js + shadcn/ui)"] --> B["FastAPI API Layer"]
-  B --> C["LangGraph Orchestrator"]
-  C --> D["Retrieval Agent (Hybrid RAG)"]
-  C --> E["Calculator Agent (Deterministic)"]
-  C --> F["Writer Agent"]
-  C --> G["Verifier Agent"]
-  D --> H["Azure AI Search (Hybrid Retrieval)"]
-  B --> I["PostgreSQL (System of Record)"]
-  B --> J["Azure Blob Storage (Evidence + Artifacts)"]
-  B --> K["Redis (Queue + Checkpoint Cache)"]
-  C --> L["Approval Workflow"]
-  L --> M["Publish Service"]
-  M --> N["Board PDF + Evidence Package + Index"]
+  A[Create run] --> B[Sync connectors]
+  B --> C[Generate run]
+  C --> D[Review and approve]
+  D --> E[Queue package job]
+  E --> F[sync]
+  F --> G[normalize]
+  G --> H[outline]
+  H --> I[write]
+  I --> J[verify]
+  J --> K[charts_images]
+  K --> L[compose]
+  L --> M[package]
+  M --> N[controlled_publish]
+  N --> O[Download artifacts]
 ```
 
----
+## Product Tour
 
-## 5) Core Technology Baseline
+The screenshots below are current repository assets from `output/playwright/`. Some UI labels inside the product are Turkish; README copy and captions are English only.
 
-### Frontend
-- Next.js App Router + React + TypeScript (strict)
-- Tailwind CSS + shadcn/ui + Radix primitives
-- ECharts + `echarts-for-react` (production chart stack)
-- TanStack Query, Table, Virtual
-- `react-hook-form`, `zod`, `@hookform/resolvers`
-- `pdfjs-dist` for in-app PDF viewing
+| Dashboard | New Report |
+| --- | --- |
+| ![Dashboard screen](./output/playwright/dashboard.png) | ![New report screen](./output/playwright/new-report.png) |
+| Executive workbench for connector freshness, package lanes, verifier pressure, artifact health, and cycle readiness. | Report setup flow for blueprint version, company profile, brand kit, and connector scope. |
 
-### Backend
-- Python 3.12+
-- FastAPI + Pydantic v2
-- SQLAlchemy 2.x + Alembic
-- Redis queue/checkpoint cache
-- Worker runtime default: `arq` (Celery as exception path)
+| Approval Center | Evidence Center |
+| --- | --- |
+| ![Approval center screen](./output/playwright/approval-center.png) | ![Evidence center screen](./output/playwright/evidence-center.png) |
+| Controlled publish board for run queue, approvals, package status, and artifact actions. | Ingest workbench for document upload, extraction quality, and source inventory. |
 
-### AI and Orchestration
-- LangGraph for typed state orchestration
-- AutoGen for calculator/code-execution-heavy collaboration
-- Azure AI Foundry as control plane
-- Azure OpenAI as inference provider
+| Retrieval Lab |
+| --- |
+| ![Retrieval lab screen](./output/playwright/retrieval-lab.png) |
+| Evidence search surface for diagnostics, scoring, filters, and retrieval inspection before publish. |
 
-### Storage and Search
-- PostgreSQL (system of record)
-- Azure Blob Storage (raw docs, parsed outputs, report artifacts)
-- Azure AI Search (hybrid vector + keyword retrieval)
-- Optional non-production fallback: Postgres + pgvector
+<details>
+<summary>Controlled publish smoke sequence</summary>
 
----
+| 1. New Report | 2. After Execute |
+| --- | --- |
+| ![Manual smoke new report](./output/playwright/manual-smoke/1775466222560/01-new-report.png) | ![Manual smoke after execute](./output/playwright/manual-smoke/1775466222560/02-after-execute.png) |
+| The operator starts a run with demo workspace data and report context. | The run completes execution and moves into reviewable state. |
 
-## 6) One-Click Regulatory Generation Pipeline
+| 3. After Approve | 4. After Publish |
+| --- | --- |
+| ![Manual smoke after approve](./output/playwright/manual-smoke/1775466222560/03-after-approve.png) | ![Manual smoke after publish](./output/playwright/manual-smoke/1775466222560/04-after-publish.png) |
+| Review is complete and the run is ready for controlled publish. | Package creation is complete and the final artifact becomes downloadable. |
 
-Single CTA:
-- `Generate Regulatory Report Pack`
+</details>
 
-Execution stages:
-1. Applicability resolver
-2. Evidence completeness gate
-3. Router -> Retrieval -> Calculator -> Writer -> Verifier
-4. Regulatory coverage audit
-5. Human approval workflow
-6. Publish and package
+## Generated Report Output
 
-Blocking behavior:
-- Critical missing data returns a deterministic `Missing Data Request Pack`.
-- Publish is blocked on critical verifier fail, missing citations, or metric integrity issues.
+The repository includes real generated report assets, not README mockups. The preview band below is sourced from `output/pdf/latest/`, and the downloadable preview files are stored in `output/pdf/generated/` and `output/playwright/downloads/`.
 
----
+| Cover | Contents | Narrative |
+| --- | --- | --- |
+| ![Preview page 1](./output/pdf/latest/page-01.png) | ![Preview page 2](./output/pdf/latest/page-02.png) | ![Preview page 3](./output/pdf/latest/page-03.png) |
 
-## 7) Zero-Hallucination Control Model
+| Governance / ESG | Operational spread | Appendix / traceability |
+| --- | --- | --- |
+| ![Preview page 4](./output/pdf/latest/page-04.png) | ![Preview page 5](./output/pdf/latest/page-05.png) | ![Preview page 6](./output/pdf/latest/page-06.png) |
 
-### Claim contract
-Every generated claim carries:
-- `claim_id`
-- `statement`
-- `evidence_refs[]`
-- `confidence`
+Repository PDF assets:
+- [Preview package PDF](./output/pdf/generated/report-factory-preview.pdf) - 17 pages, 1.21 MB.
+- [Manual smoke downloaded PDF](./output/playwright/downloads/1775466222560/641dd25c-66f4-4dd2-b1ef-5aa8423ad923.pdf) - 17 pages, 264.6 KB.
+- [Manual smoke summary](./output/playwright/manual-smoke/1775466222560/manual-smoke-summary.json) - run id, file path, file size, and screenshot evidence.
 
-### Numeric safety
-All numeric outputs are generated from deterministic calculations and persisted with:
-- input snapshot
-- code hash
-- output value and unit
-- runtime trace log
+## Connector Matrix
 
-### Publish gate
-Publishing is blocked when:
-- any critical claim is `FAIL`
-- citation links are missing
-- numeric claims lack calculator artifacts
-- required policy approvals are incomplete
+The current connector layer provisions three ERP-facing inputs and normalizes them into one canonical fact shape before the package pipeline consumes them.
 
----
+| Connector | Ingest method | Delta tracking | Example metrics in repo | Normalized destination |
+| --- | --- | --- | --- | --- |
+| SAP / OData | OData pull | `delta_token` | `E_SCOPE2_TCO2E`, `RENEWABLE_ELECTRICITY_SHARE`, `BOARD_OVERSIGHT_COVERAGE` | `canonical_facts` feeding `kpi_snapshots` |
+| Logo Tiger / SQL View | Read-only SQL view snapshot | `snapshot_watermark` | `WORKFORCE_HEADCOUNT`, `LTIFR`, `SUSTAINABILITY_COMMITTEE_MEETINGS` | `canonical_facts` feeding `kpi_snapshots` |
+| Netsis / REST | REST pull | `cursor_or_updated_at` | `SUPPLIER_COVERAGE`, `MATERIAL_TOPIC_COUNT`, `STAKEHOLDER_ENGAGEMENT_TOUCHPOINTS` | `canonical_facts` feeding `kpi_snapshots` |
 
-## 8) Data Intake: What We Must Collect
+Canonical fact contract highlights:
 
-Mandatory intake families:
-- Legal and reporting identity
-- Regulatory applicability inputs
-- Organizational and operational boundaries
-- Governance and strategy inputs
-- Environmental, social, governance data
-- Financial and taxonomy mappings (conditional by scope)
-- User run configuration (framework, period, assurance mode, deadline)
-- Integration and access metadata (ERP/HR/energy, residency, retention)
-
-Readiness scoring:
-- Completeness score
-- Evidence quality score
-- Traceability score
-- Numeric reliability score
-
-Core readiness thresholds:
-- Completeness below 85: produce remediation plan instead of final report.
-- Numeric reliability below 90 for climate sections: block publish for those sections.
-
----
-
-## 9) Evidence and KPI Governance
-
-Evidence policy:
-- All critical disclosures must map to master-copy evidence artifacts.
-- Evidence carries ownership, period coverage, quality score, and checksum.
-- Missing critical evidence deterministically blocks generation.
-
-KPI quality policy:
-- KPI datasets include schema, source, freshness, owner, quality grade, and verification rules.
-- Quality grades map to score bands (`A`, `A-`, `B+`, `B`, `C+`, `<70`).
-- Critical claims require high-grade evidence unless an approved exception exists.
-
----
-
-## 10) Double Materiality Standard
-
-Decision axes:
-- Financial materiality (outside-in)
-- Impact materiality (inside-out)
-
-Method:
-1. Stakeholder input collection
-2. 5x5 likelihood-impact scoring
-3. Matrix generation and ranking
-4. Committee review and board approval
-
-Governance rules:
-- Threshold sets are tenant-configurable but approval-controlled.
-- Matrix versions are immutable after approval.
-- Any post-approval change triggers re-approval.
-
----
-
-## 11) Approval Workflow and SLA Governance
-
-Approval hierarchy:
-- Sustainability committee approves draft readiness.
-- Governance committee performs pre-board review.
-- Board is final signature authority.
-
-State machine:
-- `Drafting`
-- `PendingDomainApproval`
-- `PendingCommitteeApproval`
-- `PendingGovernanceApproval`
-- `PendingBoardApproval`
-- `ApprovedForPublish`
-- `RejectedForRevision`
-- `Overdue`
-- `Published`
-
-SLA automation:
-- Reminder at T-48h and T-24h.
-- Overdue status triggers escalation chain.
-- No report can publish without board-level final approval record.
-
----
-
-## 12) Dashboard and PDF Publication Standard
-
-Mandatory board dashboard visuals:
-- Double materiality matrix
-- Scope 1/2/3 trend with target overlay
-- ESG risk and opportunity matrix
-- E/S strategic KPI cockpit
-- Workflow and SLA progress panel
-
-Final PDF sequence:
-1. Cover page
-2. Interactive table of contents
-3. Chair/CEO message
-4. Corporate profile and value chain
-5. Governance and sustainability strategy
-6. Double materiality analysis
-7. ESG disclosures
-8. Forward-looking targets and action plan
-9. Framework index tables
-10. Appendices (assumptions, methodology, calculation and evidence refs)
-
-PDF must support:
-- clickable bookmarks and ToC
-- claim-to-evidence navigation
-- framework index with disclosure code, page, verifier status
-- merged final package with consistent numbering and metadata
-
----
-
-## 13) PDF Library Stack (Locked)
-
-Backend:
-- `pymupdf`
-- `pypdf`
-- `pdfplumber`
-- `pikepdf`
-- `reportlab`
-- `weasyprint`
-- `pyhanko` (recommended for digital signatures)
-
-OCR and document AI:
-- Azure AI Document Intelligence (default production OCR path)
-- `ocrmypdf` only as controlled exception path
-
-Frontend:
-- `pdf.js` / `pdfjs-dist` compatible viewer
-
----
-
-## 14) Product IA and Page Map
-
-Planned product inventory:
-- Core app pages: 32
-- Shared/system pages: 6
-- Total core product pages: 38
-- Optional marketing pages: 4 (total 42 if included)
-
-Key route groups:
-- Auth
-- Onboarding
-- Dashboard
-- Projects (`/app/projects/[projectId]/*`)
-- Settings
-- Approval and board-pack flow
-
-Example critical pages:
-- `/app/dashboard/executive`
-- `/app/dashboard/board-cockpit`
-- `/app/projects/new/wizard`
-- `/app/projects/[projectId]/data-room`
-- `/app/projects/[projectId]/verification-center`
-- `/app/projects/[projectId]/approvals`
-- `/app/projects/[projectId]/publish`
-- `/app/projects/[projectId]/filing-index`
-
-Role visibility includes:
-- `admin`
-- `compliance_manager`
-- `analyst`
-- `board_member`
-- `committee_secretary`
-- `auditor_readonly`
-
----
-
-## 15) End-to-End User Scenarios
-
-Primary journey:
-1. User lands on executive dashboard.
-2. User opens new report wizard.
-3. Wizard collects identity, scope, boundaries, integrations, evidence, materiality, approval routing.
-4. User starts one-click generation.
-5. System runs applicability, completeness, orchestration, verifier, coverage audit.
-6. User resolves FAIL/UNSURE in verification center.
-7. Assurance room validates traceability package.
-8. Approval chain executes with SLA monitoring and escalation.
-9. Board sign-off completes.
-10. Publish and filing index export complete.
-
-Non-happy path examples:
-- Missing critical evidence triggers remediation pack and blocks generation.
-- Approval SLA breaches trigger reminders/escalation and block progression.
-
----
-
-## 16) Production Monorepo Contract
-
-Planned top-level structure:
-
-```text
-/
-  apps/
-    web/
-    api/
-  services/
-    worker/
-  packages/
-    shared-types/
-    ui/
-    config/
-  infra/
-    docker/
-    terraform/
-  .github/workflows/
-  docs/
-  turbo.json
-  pnpm-workspace.yaml
-  knip.json
-  vercel.json
-  docs/configuration/
+```json
+{
+  "metric_code": "E_SCOPE2_TCO2E",
+  "period_key": "2025",
+  "unit": "tCO2e",
+  "value_numeric": 12450.0,
+  "source_system": "sap_odata",
+  "source_record_id": "sap-scope2-2025",
+  "owner": "energy@company.local",
+  "confidence_score": 0.98,
+  "trace_ref": "sap://scope2/2025"
+}
 ```
 
-Required production config files include:
-- Dockerfiles for web, api, worker
-- Compose files for baseline/dev/observability profiles
-- `vercel.json`
-- `knip.json`
-- `turbo.json`
-- `pnpm-workspace.yaml`
-- CI/CD workflows for PR gates and deployments
+Key integration surfaces:
 
----
+| Surface | Purpose |
+| --- | --- |
+| `POST /integrations/connectors` | Create or update an integration configuration for a project. |
+| `POST /integrations/sync` | Run connector sync and materialize normalized facts. |
+| `GET /integrations/sync-jobs/{job_id}` | Inspect sync status, counters, cursors, and diagnostics. |
+| `GET /projects/{project_id}/facts` | Read normalized project facts after sync. |
 
-## 17) Containerization, CI/CD, and Runtime Operations
+## Trust Architecture
 
-Container standards:
-- multi-stage builds
-- minimal runtime images
-- non-root users
-- health checks
-- scan images in CI
+The current product is intentionally fail-closed.
 
-CI pipeline baseline:
-- JS/TS typecheck, lint, test, knip
-- Python lint, typecheck, test
-- contract drift checks
-- security and dependency scans
+| Rule | What it means in the product | Where it shows up |
+| --- | --- | --- |
+| No evidence, no claim | Claims must carry citation refs before they are package-eligible. | Review flow, citation index, package gate. |
+| No calculator artifact, no numeric claim | Numeric statements must resolve to calculation artifacts. | Calculation appendix and publish gate. |
+| No verifier pass, no publish | Critical `FAIL` and unresolved verification issues block publish. | Approval center and `POST /runs/{id}/publish`. |
+| Controlled publish only | Publish returns tracked package metadata instead of a blind file response. | `package_job_id`, `package_status`, `estimated_stage`, and stage polling. |
+| Artifact manifest | Every completed bundle exposes typed artifact records and download paths. | Run package status and artifact endpoints. |
 
-CD baseline:
-- Web deploy to Vercel
-- API/worker deploy to Azure runtime
-- migration job execution
-- post-deploy health verification
+Decorative visuals are also tracked rather than silently embedded. The report factory records visual slots in a `visual_manifest`, marks whether an asset was AI-generated, and falls back to deterministic editorial visuals when image generation is unavailable or disabled.
 
----
+## Runtime Surfaces
 
-## 18) Security, Reliability, and Governance Program
+These are the high-level surfaces a product evaluator, technical buyer, or contributor can inspect quickly:
 
-Security foundations:
-- SSO/OIDC
-- RBAC and row-level tenant isolation
-- encryption in transit and at rest
-- managed identity + Key Vault
-- immutable audit trails
+| Surface | What it returns |
+| --- | --- |
+| `GET /dashboard/overview?tenant_id&project_id` | Hero summary, KPI strip, connector health, pipeline lanes, verifier risk, activity, and schedule blocks. |
+| `POST /runs` | Creates a run with `report_blueprint_version`, `company_profile_ref`, `brand_kit_ref`, and `connector_scope[]`. |
+| `POST /runs/{run_id}/publish` | Queues or resumes the package pipeline and returns package tracking metadata. |
+| `GET /runs/{run_id}/package-status` | Returns `package_status`, `current_stage`, `stage_history`, `visual_generation_status`, and tracked artifacts. |
+| `GET /runs/{run_id}/artifacts/{artifact_id}` | Downloads the final PDF or supporting JSON artifacts for the run. |
 
-Reliability and continuity:
-- BCP/DR with RTO/RPO tiers
-- incident response severity model and postmortems
-- SLO/SLA + error budget controls
-- release governance with rollback readiness
+## System Architecture
 
-Assurance readiness:
-- auditor-readonly workspaces
-- one-click evidence export with integrity hash
-- claim-citation-verification matrix and approval timeline preservation
+```mermaid
+flowchart LR
+  Web[Web Control Center<br/>Dashboard, New Report, Approval Center,<br/>Evidence Center, Retrieval Lab] --> API[FastAPI API]
+  API --> Overview[Dashboard overview]
+  API --> Integrations[Connector provisioning and sync]
+  API --> Runs[Run lifecycle and controlled publish]
 
----
+  Integrations --> SAP[SAP / OData]
+  Integrations --> Logo[Logo Tiger / SQL View]
+  Integrations --> Netsis[Netsis / REST]
 
-## 19) Regulatory Scope and Change Management
+  Integrations --> Facts[Canonical facts]
+  Facts --> Kpis[KPI snapshots]
 
-Jurisdiction register:
-- Türkiye TSRS logic with threshold and transition relief versioning
-- EU CSRD/ESRS scope logic with legal snapshot dating and cohort handling
+  Runs --> Queue[Queue and worker]
+  Queue --> Factory[Report Factory]
+  Factory --> Tracking[Package status and stage history]
+  Factory --> Storage[Artifact storage]
 
-System requirement:
-- scope engine outputs must be versioned, explainable, and reproducible.
+  Overview --> Web
+  Kpis --> Overview
+  Tracking --> Overview
+  Storage --> Download[Artifact download]
+```
 
-Regulation timeline handling:
-- runs are pinned to `reg_pack_version` and `legal_snapshot_date`
-- legal updates trigger change alerts and re-validation prompts
+## Package Anatomy
 
----
+Every completed package is discoverable through the run status payload and downloadable artifact links.
 
-## 20) Package Matrix and Dependency Governance
+| Artifact | Format | Purpose |
+| --- | --- | --- |
+| `report_pdf` | PDF | Final report package with bookmarks, metadata, and report narrative. |
+| `visual_manifest` | JSON | Visual slot inventory with source type and AI-generation flags. |
+| `citation_index` | JSON | Claim-to-evidence traceability export. |
+| `calculation_appendix` | JSON | Numeric calculation references and appendix content. |
+| `coverage_matrix` | JSON | Section coverage view across required metrics and appendix refs. |
+| `assumption_register` | JSON | Package assumptions captured during generation. |
 
-Dependency policy:
-- Required, Recommended, and Optional package tiers are defined in `docs/architecture/public-baseline.md`.
-- Major versions are pinned before implementation phases.
-- Any package change requires architecture approval and ADR update.
+Package status payload highlights:
+- `package_job_id`
+- `package_status`
+- `current_stage`
+- `stage_history`
+- `report_quality_score`
+- `visual_generation_status`
+- `artifacts[]`
 
-Important lock-ins:
-- Single production chart stack: ECharts
-- Single production CSS system: Tailwind + shadcn/ui
-- Azure-only model inference endpoints
+## Quick Start
 
----
+Start the full local stack with Docker:
 
-## 21) Premium UI and Motion Standard
+```bash
+docker compose up --build
+```
 
-UI objective:
-- "Calm surface, dense intelligence."
+Local service URLs:
+- Web: `http://localhost:3000`
+- API: `http://localhost:8000`
+- API docs: `http://localhost:8000/docs`
+- API readiness: `http://localhost:8000/health/ready`
 
-Design and motion requirements:
-- token-driven semantic colors
-- board-grade information hierarchy
-- meaningful motion only (state/progress clarity)
-- reduced-motion support and WCAG 2.2 AA alignment
-- dashboard performance targets (LCP, INP, CLS) enforced in staging
+Useful repo commands:
 
----
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm e2e
+pnpm e2e:manual-smoke
+pnpm contracts:sync
+```
 
-## 22) Quality Gates and Definition of Done
+What the Docker stack brings up:
+- Next.js web app
+- FastAPI API
+- ARQ worker
+- PostgreSQL
+- Redis
 
-A report run is done only when:
-- scope/applicability approved
-- completeness and quality thresholds satisfied
-- required metrics reproducible
-- claims citation-backed
-- critical verifier FAIL count is zero
-- approval workflow completed
-- final package exported
-- archive and traceability checks passed
+## Verification Notes
 
----
+This README is intentionally grounded in current repository behavior:
+- Asset links point to files that already exist under `output/playwright/`, `output/pdf/latest/`, `output/pdf/generated/`, and `output/playwright/downloads/`.
+- Package stage names match the current report factory service exactly.
+- Connector names, delta semantics, and artifact names match the current API and backend services.
+- The old "publish and instantly download PDF" story is intentionally removed in favor of tracked package status and artifact download.
 
-## 23) Phased Delivery Roadmap
+## Deeper Docs
 
-- Phase -1: Architecture freeze
-- Phase 0: Foundation and regulatory mapping
-- Phase 1: Platform skeleton
-- Phase 2: Ingestion and storage backbone
-- Phase 3: Hybrid retrieval engine
-- Phase 4: LangGraph state orchestration
-- Phase 5: Agent layer
-- Phase 6: Reviewer UX and publish workflow
-- Phase 7: Hardening and pilot
+<details>
+<summary>Open supporting documentation</summary>
 
-No implementation should proceed without architecture freeze sign-off.
+- [AGENTS.md](./AGENTS.md)
+- [Architecture baseline](./docs/architecture/public-baseline.md)
+- [Docker development runbook](./docs/runbooks/docker-development.md)
+- [Runtime configuration](./docs/configuration/runtime-configuration.md)
+- [Secrets policy](./docs/security/secrets-policy.md)
+- [Contributing guide](./CONTRIBUTING.md)
 
----
+</details>
 
-## 24) Recommended Local Development Workflow
+## License
 
-1. Review `docs/architecture/public-baseline.md` and `AGENTS.md`.
-2. For the full containerized stack, follow `docs/runbooks/docker-development.md`.
-3. Validate architecture freeze checklist before coding.
-4. Run service-level quality gates:
-- web: lint, typecheck, tests
-- api: lint, typecheck, tests, migration checks
-- worker: job tests and integration checks
-5. Validate cross-service contracts before merge.
-6. Use phase-gated delivery and acceptance criteria per task.
-
----
-
-## 25) Repository Source of Truth
-
-Core planning docs:
-- `README.md` for product scope, stack, and repository map.
-- `docs/architecture/public-baseline.md` for architecture, governance, and package policy.
-- `AGENTS.md` for multi-agent contracts, state interfaces, and verifier gates.
-- `docs/configuration/runtime-configuration.md` for runtime variables without versioned secret files.
-
-If these documents diverge:
-- `AGENTS.md` governs agent contracts and publish gates.
-- `docs/architecture/public-baseline.md` governs architecture and package policy.
-- `docs/configuration/runtime-configuration.md` governs the public runtime variable catalog.
+[MIT](./LICENSE)

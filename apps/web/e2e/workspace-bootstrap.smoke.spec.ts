@@ -30,10 +30,10 @@ test("workspace bootstrap UI creates and stores workspace context", async ({ pag
   );
   await page.getByTestId("workspace-bootstrap-button").click();
 
-  await expect(page.getByTestId("new-report-notice")).toContainText("Workspace hazır.");
+  await expect(page.getByTestId("new-report-notice")).toContainText("Workspace ready.");
   await expect(page.getByTestId("workspace-context-status")).toContainText("tenant_id=");
   await expect(page.getByTestId("workspace-context-status")).toContainText("project_id=");
-  await expect(page.getByTestId("factory-readiness-panel")).toContainText("Readiness: hazır");
+  await expect(page.getByTestId("factory-readiness-panel")).toContainText("Readiness: ready");
 
   const storedWorkspace = await page.evaluate((storageKey) => {
     const raw = window.localStorage.getItem(storageKey);

@@ -134,9 +134,9 @@ type WorkspaceSetupState = {
 };
 
 const STEP_TITLES = [
-  "Şirket Profili",
-  "Raporlama Kapsamı",
-  "Yönetişim ve Onay",
+  "Workspace Context",
+  "Report Scope",
+  "Governance",
 ] as const;
 
 const INITIAL_STATE: WizardState = {
@@ -162,11 +162,11 @@ const INITIAL_WORKSPACE_SETUP: WorkspaceSetupState = {
   brandName: "",
   logoUri: "",
   primaryColor: "#f07f13",
-  secondaryColor: "#0c4a6e",
-  accentColor: "#7ab648",
-  headingFont: "Segoe UI Semibold",
-  bodyFont: "Segoe UI",
-  toneName: "kurumsal-guvenilir",
+  secondaryColor: "#262421",
+  accentColor: "#d2b24a",
+  headingFont: "Inter",
+  bodyFont: "Inter",
+  toneName: "editorial-corporate",
 };
 
 function resolveFrameworkTargets(form: WizardState): string[] {
@@ -386,7 +386,7 @@ export default function NewReportPage() {
       workspaceProjectName.trim().length < 2 ||
       workspaceProjectCode.trim().length < 2
     ) {
-      setSubmitError("Tenant ve proje alanları zorunlu.");
+      setSubmitError("Tenant and project fields are required.");
       return;
     }
 
@@ -428,8 +428,8 @@ export default function NewReportPage() {
       applyWorkspaceContext(payload);
       setSubmitNotice(
         payload.factory_readiness.is_ready
-          ? `Workspace hazır. Tenant: ${payload.tenant.slug}, Proje: ${payload.project.code}. Rapor fabrikası bağlamı kuruldu.`
-          : `Workspace oluşturuldu ancak report factory henüz hazır değil. Eksik alanları tamamla.`,
+          ? `Workspace ready. Tenant ${payload.tenant.slug} and project ${payload.project.code} are configured for the Report Factory.`
+          : "Workspace created, but the Report Factory still needs profile or brand confirmation.",
       );
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Workspace bootstrap failed.");
@@ -443,19 +443,19 @@ export default function NewReportPage() {
     setSubmitNotice(null);
 
     if (!workspace) {
-      setSubmitError("Önce bir workspace seç veya oluştur.");
+      setSubmitError("Select or create a workspace first.");
       return;
     }
     if (!factoryContext) {
-      setSubmitError("Devam etmeden önce workspace context yüklenmeli.");
+      setSubmitError("Workspace context must finish loading before launch.");
       return;
     }
     if (!factoryContext.readiness.is_ready) {
-      setSubmitError("Brand kit ve company profile readiness blokları temizlenmeden report factory run'i baslatilamaz.");
+      setSubmitError("Clear profile and brand readiness blockers before starting a Report Factory run.");
       return;
     }
     if (!canSubmit) {
-      setSubmitError("Run oluşturmadan önce zorunlu alanları tamamla.");
+      setSubmitError("Complete the required launch fields before creating the run.");
       return;
     }
 
@@ -468,7 +468,7 @@ export default function NewReportPage() {
         .map((item) => item.id);
 
       if (activeConnectorIds.length === 0) {
-        setSubmitError("En az bir aktif ERP connector seç.");
+        setSubmitError("Select at least one active ERP connector.");
         return;
       }
 
@@ -524,18 +524,18 @@ export default function NewReportPage() {
   return (
     <AppShell
       activePath="/reports/new"
-      title="Rapor Fabrikası Çalıştır"
-      subtitle="Report context kur, ERP connector'larını senkronize et ve kontrollü sürdürülebilirlik raporu hattını başlat."
-      actions={[{ href: "/dashboard", label: "Dashboard'a Dön" }]}
+      title="Report Factory Launchpad"
+      subtitle="Configure the tenant workspace, align brand and company identity, and launch a governed sustainability reporting run."
+      actions={[{ href: "/dashboard", label: "Back to Dashboard" }]}
     >
-      <section className="mb-4 rounded-xl border bg-card p-4 shadow-sm">
+      <section className="mb-4 rounded-[1.75rem] border border-[color:var(--border)] bg-white/72 p-5 shadow-[var(--shadow-soft)]">
         <div className="mb-3 flex items-center gap-2">
           <Settings2 className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-base font-semibold">Workspace Kurulumu (Tenant + Proje)</h2>
+          <h2 className="text-base font-semibold">Workspace Bootstrap (Tenant + Project)</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <label className="space-y-1 text-sm">
-            <span className="text-muted-foreground">Tenant Adı</span>
+            <span className="text-muted-foreground">Tenant Name</span>
             <input
               aria-label="Tenant Name"
               className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -553,7 +553,7 @@ export default function NewReportPage() {
             />
           </label>
           <label className="space-y-1 text-sm">
-            <span className="text-muted-foreground">Proje Adı</span>
+            <span className="text-muted-foreground">Project Name</span>
             <input
               aria-label="Project Name"
               className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -562,7 +562,7 @@ export default function NewReportPage() {
             />
           </label>
           <label className="space-y-1 text-sm">
-            <span className="text-muted-foreground">Proje Kodu</span>
+            <span className="text-muted-foreground">Project Code</span>
             <input
               aria-label="Project Code"
               className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -571,7 +571,7 @@ export default function NewReportPage() {
             />
           </label>
           <label className="space-y-1 text-sm">
-            <span className="text-muted-foreground">Para Birimi</span>
+            <span className="text-muted-foreground">Currency</span>
             <input
               aria-label="Currency"
               className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -581,11 +581,11 @@ export default function NewReportPage() {
           </label>
         </div>
         <div className="mt-4 grid gap-4 xl:grid-cols-2">
-          <div className="rounded-2xl border bg-muted/20 p-4">
+          <div className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/50 p-4">
             <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Company Profile</p>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <label className="space-y-1 text-sm md:col-span-2">
-                <span className="text-muted-foreground">Tüzel Kişi Adı</span>
+                <span className="text-muted-foreground">Legal Entity Name</span>
                 <input
                   aria-label="Workspace Legal Name"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -596,7 +596,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Sektör</span>
+                <span className="text-muted-foreground">Sector</span>
                 <input
                   aria-label="Workspace Sector"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -607,7 +607,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Genel Merkez</span>
+                <span className="text-muted-foreground">Headquarters</span>
                 <input
                   aria-label="Workspace Headquarters"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -618,7 +618,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm md:col-span-2">
-                <span className="text-muted-foreground">Kurum Profili</span>
+                <span className="text-muted-foreground">Company Description</span>
                 <textarea
                   aria-label="Workspace Company Description"
                   className="border-input bg-background min-h-24 w-full rounded-md border px-3 py-2"
@@ -629,7 +629,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Yönetici Adı</span>
+                <span className="text-muted-foreground">CEO Name</span>
                 <input
                   aria-label="Workspace CEO Name"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -640,7 +640,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Mesaj Tonu / Stil</span>
+                <span className="text-muted-foreground">Tone / Style</span>
                 <input
                   aria-label="Workspace Tone Name"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -651,7 +651,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm md:col-span-2">
-                <span className="text-muted-foreground">Yönetici Mesajı</span>
+                <span className="text-muted-foreground">CEO Message</span>
                 <textarea
                   aria-label="Workspace CEO Message"
                   className="border-input bg-background min-h-24 w-full rounded-md border px-3 py-2"
@@ -662,7 +662,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm md:col-span-2">
-                <span className="text-muted-foreground">Sürdürülebilirlik Yaklaşımı</span>
+                <span className="text-muted-foreground">Sustainability Approach</span>
                 <textarea
                   aria-label="Workspace Sustainability Approach"
                   className="border-input bg-background min-h-24 w-full rounded-md border px-3 py-2"
@@ -674,11 +674,11 @@ export default function NewReportPage() {
               </label>
             </div>
           </div>
-          <div className="rounded-2xl border bg-muted/20 p-4">
+          <div className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/50 p-4">
             <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Brand Kit</p>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Marka Adı</span>
+                <span className="text-muted-foreground">Brand Name</span>
                 <input
                   aria-label="Workspace Brand Name"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -700,7 +700,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Ana Renk</span>
+                <span className="text-muted-foreground">Primary Color</span>
                 <input
                   aria-label="Workspace Primary Color"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -711,7 +711,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Yardımcı Renk</span>
+                <span className="text-muted-foreground">Secondary Color</span>
                 <input
                   aria-label="Workspace Secondary Color"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -722,7 +722,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Vurgu Rengi</span>
+                <span className="text-muted-foreground">Accent Color</span>
                 <input
                   aria-label="Workspace Accent Color"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -733,7 +733,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Başlık Fontu</span>
+                <span className="text-muted-foreground">Heading Font</span>
                 <input
                   aria-label="Workspace Heading Font"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -744,7 +744,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-1 text-sm md:col-span-2">
-                <span className="text-muted-foreground">Gövde Fontu</span>
+                <span className="text-muted-foreground">Body Font</span>
                 <input
                   aria-label="Workspace Body Font"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -766,7 +766,7 @@ export default function NewReportPage() {
             data-testid="workspace-bootstrap-button"
           >
             {workspaceBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
-            {workspaceBusy ? "Hazırlanıyor..." : "Workspace Oluştur / Seç"}
+            {workspaceBusy ? "Configuring..." : "Bootstrap Workspace"}
           </Button>
           {workspace ? (
             <p
@@ -777,7 +777,7 @@ export default function NewReportPage() {
             </p>
           ) : (
             <p className="text-xs text-muted-foreground" data-testid="workspace-context-status">
-              Henüz workspace seçilmedi.
+              No workspace selected yet.
             </p>
           )}
         </div>
@@ -785,8 +785,8 @@ export default function NewReportPage() {
           <p
             className="mt-2 text-xs text-muted-foreground"
             data-testid="factory-context-loading"
-          >
-            Mevcut workspace için rapor fabrikası bağlamı yükleniyor...
+        >
+            Loading Report Factory context for the current workspace...
           </p>
         ) : null}
         {factoryContext ? (
@@ -796,20 +796,20 @@ export default function NewReportPage() {
           >
             <div>
               <p className="text-xs uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">
-                Rapor Fabrikası Bağlamı
+                Report Factory Context
               </p>
               <p className="mt-2 text-sm">
                 Blueprint: <strong>{factoryContext.blueprintVersion}</strong>
               </p>
               <p className="mt-1 text-sm">
-                Provision edilen connector sayısı: <strong>{factoryContext.integrations.length}</strong>
+                Provisioned connector count: <strong>{factoryContext.integrations.length}</strong>
               </p>
               <div className="mt-3 rounded-xl border border-emerald-500/20 bg-background/80 px-3 py-3 text-sm" data-testid="factory-readiness-panel">
                 <p className="font-medium">
-                  Readiness: {factoryContext.readiness.is_ready ? "hazır" : "bloklu"}
+                  Readiness: {factoryContext.readiness.is_ready ? "ready" : "blocked"}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Company profile: {factoryContext.readiness.company_profile_ready ? "ok" : "eksik"} | Brand kit: {factoryContext.readiness.brand_kit_ready ? "ok" : "eksik"}
+                  Company profile: {factoryContext.readiness.company_profile_ready ? "ok" : "missing"} | Brand kit: {factoryContext.readiness.brand_kit_ready ? "ok" : "missing"}
                 </p>
                 {factoryContext.readiness.blockers.length > 0 ? (
                   <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
@@ -821,7 +821,7 @@ export default function NewReportPage() {
               </div>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Connector Kapsamı</p>
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Connector Scope</p>
               <div className="mt-2 grid gap-2 md:grid-cols-3">
                 {factoryContext.integrations.map((integration) => {
                   const checked = connectorScope.includes(integration.connectorType);
@@ -853,23 +853,23 @@ export default function NewReportPage() {
       </section>
 
       <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-        <section className="rounded-xl border bg-card p-5 shadow-sm">
+        <section className="rounded-[1.75rem] border border-[color:var(--border)] bg-white/72 p-5 shadow-[var(--shadow-soft)]">
           <div className="mb-6 flex items-center justify-between">
             <div>
               <p className="text-muted-foreground text-xs uppercase tracking-[0.16em]">
-                Adım {step + 1} / {STEP_TITLES.length}
+                Step {step + 1} / {STEP_TITLES.length}
               </p>
               <h2 className="mt-1 text-xl font-semibold">{STEP_TITLES[step]}</h2>
             </div>
             <p className="text-muted-foreground rounded-full border px-3 py-1 text-xs">
-              Tamamlanma {score}%
+              Completion {score}%
             </p>
           </div>
 
           {step === 0 ? (
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Tüzel Kişi Adı</span>
+                <span className="text-muted-foreground">Legal Entity Name</span>
                 <input
                   aria-label="Legal Entity Name"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -880,7 +880,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Vergi / Sicil No</span>
+                <span className="text-muted-foreground">Tax / Registry ID</span>
                 <input
                   aria-label="Tax / Registry ID"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -896,7 +896,7 @@ export default function NewReportPage() {
           {step === 1 ? (
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Hedef Framework</span>
+                <span className="text-muted-foreground">Framework Target</span>
                 <select
                   aria-label="Framework Target"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -914,7 +914,7 @@ export default function NewReportPage() {
                 </select>
               </label>
               <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Raporlama Yılı</span>
+                <span className="text-muted-foreground">Reporting Year</span>
                 <input
                   aria-label="Reporting Year"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -928,7 +928,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-2 text-sm md:col-span-2">
-                <span className="text-muted-foreground">Faaliyet Ülkeleri</span>
+                <span className="text-muted-foreground">Operation Countries</span>
                 <input
                   aria-label="Operation Countries"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -953,7 +953,7 @@ export default function NewReportPage() {
                     }))
                   }
                 />
-                Bu run için Scope 3 hesaplama çevrimini dahil et
+                Include the Scope 3 calculation cycle for this run
               </label>
             </div>
           ) : null}
@@ -961,7 +961,7 @@ export default function NewReportPage() {
           {step === 2 ? (
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Sürdürülebilirlik Sorumlusu</span>
+                <span className="text-muted-foreground">Sustainability Owner</span>
                 <input
                   aria-label="Sustainability Owner"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -975,7 +975,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Yönetim Kurulu Onaylayıcısı</span>
+                <span className="text-muted-foreground">Board Approver</span>
                 <input
                   aria-label="Board Approver"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -989,7 +989,7 @@ export default function NewReportPage() {
                 />
               </label>
               <label className="space-y-2 text-sm md:col-span-2">
-                <span className="text-muted-foreground">Onay SLA (gün)</span>
+                <span className="text-muted-foreground">Approval SLA (days)</span>
                 <input
                   aria-label="Approval SLA (days)"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
@@ -1014,7 +1014,7 @@ export default function NewReportPage() {
               data-testid="wizard-back-button"
             >
               <ChevronLeft className="h-4 w-4" />
-              Geri
+              Back
             </Button>
 
             {isLastStep ? (
@@ -1029,7 +1029,7 @@ export default function NewReportPage() {
                 ) : (
                   <Rocket className="h-4 w-4" />
                 )}
-                {isSubmitting ? "Oluşturuluyor..." : "Report Run Oluştur"}
+                {isSubmitting ? "Creating run..." : "Create report run"}
               </Button>
             ) : (
               <Button
@@ -1039,7 +1039,7 @@ export default function NewReportPage() {
                 }
                 data-testid="wizard-next-button"
               >
-                İleri
+                Next
                 <ChevronRight className="h-4 w-4" />
               </Button>
             )}
@@ -1047,7 +1047,7 @@ export default function NewReportPage() {
 
           {factoryContext && !factoryContext.readiness.is_ready ? (
             <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
-              Report run butonu readiness bloklari temizlenene kadar kapali kalir.
+              The create run action stays locked until the readiness blockers are cleared.
             </p>
           ) : null}
 
@@ -1073,7 +1073,7 @@ export default function NewReportPage() {
           ) : null}
         </section>
 
-        <aside className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+        <aside className="relative overflow-hidden rounded-[1.75rem] border border-[color:var(--border)] bg-white/72 p-5 shadow-[var(--shadow-soft)]">
           <div className="absolute inset-0">
             <Image
               src="/images/wizard-hero.png"
@@ -1087,11 +1087,11 @@ export default function NewReportPage() {
 
           <div className="relative">
             <p className="text-muted-foreground mb-4 text-xs tracking-[0.12em] uppercase">
-              Kanıt Hazır Intake
+              Factory Summary
             </p>
-            <h3 className="text-base font-semibold">Run Özeti</h3>
+            <h3 className="text-base font-semibold">Run Summary</h3>
             <p className="text-muted-foreground mt-1 text-sm">
-              Wizard üzerinde toplanan girdiler doğrudan LangGraph execution state&apos;ine yazılır.
+              Inputs collected in the wizard are written directly into the run state and used for connector sync and retrieval planning.
             </p>
             <ul className="mt-4 space-y-3 text-sm">
               {STEP_TITLES.map((title, index) => (
@@ -1109,14 +1109,14 @@ export default function NewReportPage() {
             <div className="bg-muted/45 mt-5 rounded-lg border p-3 text-xs">
               <div className="mb-2 flex items-center gap-2">
                 <FileText className="h-3.5 w-3.5" />
-                Payload önizleme
+                Payload preview
               </div>
               <p>Framework: {form.framework}</p>
               <p>Year: {form.reportingYear}</p>
-              <p>Scope 3: {form.includeScope3 ? "Dahil" : "Hariç"}</p>
-              <p>SLA: {form.approvalSlaDays} gün</p>
+              <p>Scope 3: {form.includeScope3 ? "Included" : "Excluded"}</p>
+              <p>SLA: {form.approvalSlaDays} days</p>
               <p>
-                Workspace: {workspace ? `${workspace.tenantId} / ${workspace.projectId}` : "seçilmedi"}
+                Workspace: {workspace ? `${workspace.tenantId} / ${workspace.projectId}` : "not selected"}
               </p>
             </div>
           </div>

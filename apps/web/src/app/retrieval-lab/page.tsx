@@ -6,6 +6,16 @@ import { Loader2, Search } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import {
+  EmptyState,
+  fieldClassName,
+  FormField,
+  MetricPill,
+  SectionHeading,
+  StatChip,
+  SubtleAlert,
+  SurfaceCard,
+} from "@/components/workbench-ui";
+import {
   buildApiHeaders,
   getApiBaseUrl,
   parseJsonOrThrow,
@@ -107,136 +117,127 @@ export default function RetrievalLabPage() {
   return (
     <AppShell
       activePath="/retrieval-lab"
-      title="Retrieval Lab"
-      subtitle="Run hybrid retrieval against indexed evidence and inspect diagnostics."
+      title="Retrieval Research Bench"
+      subtitle="Compose retrieval queries, inspect diagnostics, and review ranked evidence without leaving the premium workbench."
       actions={[
         { href: "/evidence-center", label: "Open Evidence Center" },
-        { href: "/approval-center", label: "Open Approval Center" },
+        { href: "/approval-center", label: "Open Publish Board" },
       ]}
     >
       {!workspace ? (
-        <div className="mb-4 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-          Workspace not selected. Configure tenant/project from New Report Wizard first.
-        </div>
+        <SubtleAlert tone="attention" title="Workspace required">
+          Open New Report Run first so the lab can apply tenant and project isolation correctly.
+        </SubtleAlert>
       ) : (
-        <div className="mb-4 rounded-xl border bg-card px-4 py-3 text-xs text-muted-foreground">
-          tenant_id={workspace.tenantId} | project_id={workspace.projectId}
+        <div className="flex flex-wrap gap-2">
+          <StatChip label="tenant" value={workspace.tenantId} />
+          <StatChip label="project" value={workspace.projectId} />
+          <StatChip label="mode" value={retrievalMode} />
         </div>
       )}
 
       {error ? (
-        <div className="mb-4 rounded-xl border border-destructive/35 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <SubtleAlert tone="critical" title="Retrieval issue">
           {error}
-        </div>
+        </SubtleAlert>
       ) : null}
 
-      <section className="rounded-xl border bg-card p-5 shadow-sm">
-        <h2 className="mb-3 text-lg font-semibold">Query Controls</h2>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <label className="space-y-1 text-sm md:col-span-2 xl:col-span-4">
-            <span className="text-muted-foreground">Query</span>
-            <input
-              className="border-input bg-background w-full rounded-md border px-3 py-2"
-              value={queryText}
-              onChange={(event) => setQueryText(event.target.value)}
-            />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted-foreground">Top K</span>
-            <input
-              className="border-input bg-background w-full rounded-md border px-3 py-2"
-              value={topK}
-              onChange={(event) => setTopK(event.target.value)}
-            />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted-foreground">Mode</span>
-            <select
-              className="border-input bg-background w-full rounded-md border px-3 py-2"
-              value={retrievalMode}
-              onChange={(event) => setRetrievalMode(event.target.value as "hybrid" | "sparse" | "dense")}
-            >
-              <option value="hybrid">hybrid</option>
-              <option value="sparse">sparse</option>
-              <option value="dense">dense</option>
-            </select>
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted-foreground">Min Score</span>
-            <input
-              className="border-input bg-background w-full rounded-md border px-3 py-2"
-              value={minScore}
-              onChange={(event) => setMinScore(event.target.value)}
-            />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted-foreground">Min Coverage</span>
-            <input
-              className="border-input bg-background w-full rounded-md border px-3 py-2"
-              value={minCoverage}
-              onChange={(event) => setMinCoverage(event.target.value)}
-            />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted-foreground">Period Hint</span>
-            <input
-              className="border-input bg-background w-full rounded-md border px-3 py-2"
-              value={period}
-              onChange={(event) => setPeriod(event.target.value)}
-            />
-          </label>
-          <label className="space-y-1 text-sm md:col-span-2">
-            <span className="text-muted-foreground">Keywords (comma separated)</span>
-            <input
-              className="border-input bg-background w-full rounded-md border px-3 py-2"
-              value={keywords}
-              onChange={(event) => setKeywords(event.target.value)}
-            />
-          </label>
-          <label className="space-y-1 text-sm md:col-span-2">
-            <span className="text-muted-foreground">Section Tags (comma separated)</span>
-            <input
-              className="border-input bg-background w-full rounded-md border px-3 py-2"
-              value={sectionTags}
-              onChange={(event) => setSectionTags(event.target.value)}
-            />
-          </label>
-        </div>
-        <div className="mt-3">
-          <Button type="button" onClick={() => void handleQuery()} disabled={busy || !workspace}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-            Run Retrieval
-          </Button>
-        </div>
-      </section>
+      <div className="grid dense-grid xl:grid-cols-[1.05fr_0.95fr]">
+        <SurfaceCard className="px-5 py-5">
+          <SectionHeading
+            eyebrow="Query composer"
+            title="Build a filtered retrieval request"
+            description="Tune scoring thresholds, disclosure filters, and hint packs before dispatching a hybrid, sparse, or dense query."
+          />
+          <div className="mt-4 grid dense-grid md:grid-cols-2 xl:grid-cols-4">
+            <FormField label="Query" className="md:col-span-2 xl:col-span-4">
+              <input className={fieldClassName()} value={queryText} onChange={(event) => setQueryText(event.target.value)} />
+            </FormField>
+            <FormField label="Top K">
+              <input className={fieldClassName()} value={topK} onChange={(event) => setTopK(event.target.value)} />
+            </FormField>
+            <FormField label="Mode">
+              <select className={fieldClassName()} value={retrievalMode} onChange={(event) => setRetrievalMode(event.target.value as "hybrid" | "sparse" | "dense")}>
+                <option value="hybrid">hybrid</option>
+                <option value="sparse">sparse</option>
+                <option value="dense">dense</option>
+              </select>
+            </FormField>
+            <FormField label="Min Score">
+              <input className={fieldClassName()} value={minScore} onChange={(event) => setMinScore(event.target.value)} />
+            </FormField>
+            <FormField label="Min Coverage">
+              <input className={fieldClassName()} value={minCoverage} onChange={(event) => setMinCoverage(event.target.value)} />
+            </FormField>
+            <FormField label="Period Hint">
+              <input className={fieldClassName()} value={period} onChange={(event) => setPeriod(event.target.value)} />
+            </FormField>
+            <FormField label="Keywords" hint="comma separated" className="md:col-span-2">
+              <input className={fieldClassName()} value={keywords} onChange={(event) => setKeywords(event.target.value)} />
+            </FormField>
+            <FormField label="Section Tags" hint="comma separated" className="md:col-span-2">
+              <input className={fieldClassName()} value={sectionTags} onChange={(event) => setSectionTags(event.target.value)} />
+            </FormField>
+          </div>
+          <div className="mt-4">
+            <Button type="button" onClick={() => void handleQuery()} disabled={busy || !workspace}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Run Retrieval
+            </Button>
+          </div>
+        </SurfaceCard>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <article className="rounded-xl border bg-card p-4 shadow-sm">
-          <h3 className="mb-2 text-sm font-semibold">Diagnostics</h3>
-          <pre className="max-h-[28rem] overflow-auto rounded-md bg-muted/45 p-3 text-xs">
-            {response ? JSON.stringify(response.diagnostics, null, 2) : "{}"}
-          </pre>
-        </article>
-        <article className="rounded-xl border bg-card p-4 shadow-sm">
-          <h3 className="mb-2 text-sm font-semibold">Evidence Results</h3>
-          <div className="space-y-3">
+        <SurfaceCard className="px-5 py-5">
+          <SectionHeading
+            eyebrow="Diagnostics"
+            title="Result health"
+            description="Live quality signals from the latest retrieval response."
+          />
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <MetricPill label="results" value={response?.diagnostics.result_count ?? 0} detail="Number of evidence blocks returned." tone={response?.diagnostics.result_count ? "good" : "neutral"} />
+            <MetricPill label="best score" value={response ? response.diagnostics.best_score.toFixed(3) : "0.000"} detail="Highest final score from the latest response." tone={response?.diagnostics.best_score && response.diagnostics.best_score >= 0.7 ? "good" : "attention"} />
+            <MetricPill label="coverage" value={response ? `${response.diagnostics.coverage}%` : "0%"} detail="Coverage figure reported by retrieval diagnostics." tone={response?.diagnostics.coverage && response.diagnostics.coverage >= 70 ? "good" : "attention"} />
+            <MetricPill label="latency" value={response ? `${response.diagnostics.latency_ms} ms` : "pending"} detail="Backend retrieval latency." tone="neutral" />
+          </div>
+        </SurfaceCard>
+      </div>
+
+      <div className="grid dense-grid xl:grid-cols-[0.9fr_1.1fr]">
+        <SurfaceCard className="px-5 py-5">
+          <SectionHeading
+            eyebrow="Raw diagnostics"
+            title="Provider and scoring ledger"
+            description="Use the raw payload for debugging thresholds, filters, and index selection."
+          />
+          <div className="mt-4 rounded-[1.35rem] border border-[color:var(--border)] bg-white/58 p-4">
+            <pre className="max-h-[28rem] overflow-auto rounded-md bg-muted/45 p-3 text-xs">{response ? JSON.stringify(response.diagnostics, null, 2) : "{}"}</pre>
+          </div>
+        </SurfaceCard>
+
+        <SurfaceCard className="px-5 py-5">
+          <SectionHeading
+            eyebrow="Evidence stream"
+            title="Ranked evidence results"
+            description="Inspect the ranked chunks, document provenance, and final scoring output."
+          />
+          <div className="mt-4 space-y-3">
             {response?.evidence.map((item) => (
-              <div key={item.evidence_id} className="rounded-lg border bg-muted/30 p-3">
+              <div key={item.evidence_id} className="rounded-[1.35rem] border border-[color:var(--border)] bg-white/58 p-4">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span>evidence_id={item.evidence_id}</span>
                   <span>doc={item.source_document_id}</span>
                   <span>chunk={item.chunk_id}</span>
                   <span>score={item.score_final.toFixed(4)}</span>
                 </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm">{item.text}</p>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground">{item.text}</p>
               </div>
             ))}
             {!response || response.evidence.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No evidence returned yet.</p>
+              <EmptyState title="No evidence returned yet" description="Run a retrieval query to populate the ranked evidence stream." />
             ) : null}
           </div>
-        </article>
-      </section>
+        </SurfaceCard>
+      </div>
     </AppShell>
   );
 }
