@@ -46,8 +46,8 @@ async function main() {
     await page.goto(`${env.PLAYWRIGHT_WEB_BASE_URL}/reports/new`);
     await page.getByLabel("Legal Entity Name").fill("Manual Smoke Sustainability Holding");
     await page.getByLabel("Tax / Registry ID").fill("TR-5556667778");
-    await page.getByRole("button", { name: "Next", exact: true }).click();
-    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.getByTestId("wizard-next-button").click();
+    await page.getByTestId("wizard-next-button").click();
     await page.getByLabel("Sustainability Owner").fill("Manual Smoke Owner");
     await page.getByLabel("Board Approver").fill("Manual Smoke Board Approver");
     await page.screenshot({
@@ -78,7 +78,7 @@ async function main() {
     });
 
     await page.getByTestId(`run-${runId}-publish`).click();
-    await page.getByTestId(`run-${runId}-download-pdf`).waitFor({ state: "visible", timeout: 30_000 });
+    await page.getByTestId(`run-${runId}-download-pdf`).waitFor({ state: "visible", timeout: 120_000 });
     await page.screenshot({
       path: path.join(screenshotDir, "04-after-publish.png"),
       fullPage: true,

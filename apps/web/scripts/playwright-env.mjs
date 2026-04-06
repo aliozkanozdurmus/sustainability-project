@@ -11,7 +11,7 @@ export const REPO_ROOT = path.resolve(scriptDir, "../../..");
 export const PLAYWRIGHT_OUTPUT_ROOT = path.join(REPO_ROOT, "output", "playwright");
 export const PLAYWRIGHT_DOWNLOAD_ROOT = path.join(PLAYWRIGHT_OUTPUT_ROOT, "downloads");
 export const PLAYWRIGHT_MANUAL_ROOT = path.join(PLAYWRIGHT_OUTPUT_ROOT, "manual-smoke");
-export const DEFAULT_SERVICES = ["postgres", "redis", "api", "web"];
+export const DEFAULT_SERVICES = ["postgres", "redis", "api", "worker", "web"];
 
 function quoteWindowsArg(value) {
   if (value.length === 0) {

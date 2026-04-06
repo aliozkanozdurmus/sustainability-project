@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import {
   getEnvWorkspaceFallback,
@@ -51,9 +51,17 @@ function subscribeWorkspaceContext(callback: () => void): () => void {
 }
 
 export function useWorkspaceContext(): WorkspaceContext | null {
-  return useSyncExternalStore(
+  const [hydrated, setHydrated] = useState(false);
+  const workspace = useSyncExternalStore(
     subscribeWorkspaceContext,
     getWorkspaceClientSnapshot,
     getWorkspaceServerSnapshot,
   );
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHydrated(true);
+  }, []);
+
+  return hydrated ? workspace : getWorkspaceServerSnapshot();
 }

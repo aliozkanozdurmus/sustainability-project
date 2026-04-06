@@ -45,6 +45,9 @@ class WorkerRuntimeSettings(BaseSettings):
     index_job_max_retries: int = Field(default=3)
     index_retry_base_seconds: int = Field(default=2)
     index_retry_max_defer_seconds: int = Field(default=30)
+    package_job_max_retries: int = Field(default=2)
+    package_retry_base_seconds: int = Field(default=5)
+    package_retry_max_defer_seconds: int = Field(default=60)
     azure_openai_chat_deployment: str = Field(default="gpt-5.2")
     azure_openai_embedding_deployment: str = Field(default="text-embedding-3-large")
 

@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @page { size: A4 landscape; margin: 0; }
+      :root {
+        --primary: {{ brand.primary_color }};
+        --secondary: {{ brand.secondary_color }};
+        --accent: {{ brand.accent_color }};
+        --ink: #17324a;
+        --muted: #587086;
+        --line: #d7e0e7;
+        --paper: #eef2f4;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        margin: 0;
+        font-family: "{{ brand.font_family_body }}", "DejaVu Sans", sans-serif;
+        color: var(--ink);
+        background: var(--paper);
+      }
+      img { max-width: 100%; }
+      a { color: inherit; text-decoration: none; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td {
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+        word-break: break-word;
+      }
+      th {
+        font-size: 10px;
+        letter-spacing: .1em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      td { font-size: 12px; line-height: 1.55; }
+      .page {
+        position: relative;
+        min-height: 595px;
+        page-break-after: always;
+        overflow: hidden;
+      }
+      .page:last-of-type { page-break-after: auto; }
+      .page-no {
+        position: absolute;
+        right: 26px;
+        bottom: 18px;
+        font-size: 11px;
+        letter-spacing: .22em;
+        color: rgba(18, 33, 49, .72);
+      }
+      .shell { position: relative; z-index: 2; padding: 34px 40px 28px; }
+      .heading {
+        margin: 0;
+        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+        font-weight: 700;
+      }
+      .card {
+        background: rgba(255, 255, 255, .92);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: 0 10px 28px rgba(15, 23, 42, .04);
+      }
+      .chip {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, .16);
+        background: rgba(255, 255, 255, .12);
+        font-size: 11px;
+      }
+      .cover {
+        color: white;
+        background: linear-gradient(140deg, #081726 0%, {{ brand.secondary_color }} 26%, {{ brand.primary_color }} 100%);
+      }
+      .cover .hero, .opener .hero { position: absolute; inset: 0; }
+      .cover .hero img, .opener .hero img { width: 100%; height: 100%; object-fit: cover; }
+      .cover .hero::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(96deg, rgba(8, 23, 38, .93) 0%, rgba(8, 23, 38, .82) 28%, rgba(8, 23, 38, .38) 56%, rgba(8, 23, 38, .14) 100%);
+      }
+      .cover .shell { display: flex; flex-direction: column; justify-content: space-between; min-height: 595px; }
+      .brand { display: flex; align-items: center; gap: 16px; }
+      .brand img { width: 56px; height: 56px; }
+      .brand strong {
+        display: block;
+        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+        font-size: 28px;
+      }
+      .brand span {
+        display: block;
+        margin-top: 4px;
+        font-size: 11px;
+        letter-spacing: .16em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, .72);
+      }
+      .cover-copy { width: 45%; }
+      .eyebrow {
+        margin: 18px 0 0;
+        font-size: 11px;
+        letter-spacing: .22em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, .8);
+      }
+      .cover h1 { margin: 20px 0 16px; font-size: 50px; line-height: 1.02; }
+      .cover .lede { margin: 0; max-width: 360px; font-size: 16px; line-height: 1.7; color: rgba(255, 255, 255, .92); }
+      .cover .meta, .cover .factory {
+        padding: 20px 22px;
+        border-radius: 28px;
+        border: 1px solid rgba(255, 255, 255, .14);
+        background: rgba(255, 255, 255, .1);
+      }
+      .cover .meta { margin-top: 22px; max-width: 390px; }
+      .cover .meta p, .cover .factory p { margin: 0; font-size: 12px; line-height: 1.7; }
+      .cover .meta p + p { margin-top: 8px; }
+      .cover .footer {
+        display: grid;
+        grid-template-columns: 1.35fr .65fr;
+        gap: 16px;
+        align-items: end;
+      }
+      .metric-chips { display: flex; flex-wrap: wrap; gap: 12px; }
+      .metric-chips .mini {
+        width: calc(33.333% - 8px);
+        min-height: 78px;
+        padding: 14px 16px;
+        border-radius: 22px;
+        border: 1px solid rgba(255, 255, 255, .14);
+        background: rgba(255, 255, 255, .1);
+      }
+      .metric-chips .mini span {
+        display: block;
+        font-size: 10px;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, .72);
+      }
+      .metric-chips .mini strong { display: block; margin-top: 10px; font-size: 14px; line-height: 1.4; }
+      .cover ul { margin: 12px 0 0; padding-left: 18px; }
+      .cover li { margin-bottom: 6px; font-size: 11px; line-height: 1.55; color: rgba(255, 255, 255, .84); }
+      .contents { background: linear-gradient(180deg, #eef2f4 0%, #f7f8fa 100%); }
+      .contents .rail {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 96px;
+        background: rgba(255, 255, 255, .78);
+        border-right: 1px solid var(--line);
+      }
+      .contents .rail-shell {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 595px;
+        padding: 16px 12px;
+      }
+      .contents .rail-top img { width: 48px; height: 48px; display: block; }
+      .contents .rail-top div {
+        margin-top: 10px;
+        font-size: 12px;
+        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+      }
+      .contents .rail-item { padding: 8px 8px 8px 10px; border-left: 4px solid transparent; }
+      .contents .rail-item strong { display: block; font-size: 12px; }
+      .contents .rail-item span { display: block; margin-top: 4px; font-size: 10px; color: var(--muted); }
+      .contents .shell { padding-left: 126px; }
+      .contents h2, .appendix h2 {
+        margin: 0;
+        font-size: 36px;
+        color: var(--primary);
+      }
+      .contents .intro {
+        display: grid;
+        grid-template-columns: 1.35fr .65fr;
+        gap: 18px;
+        margin-top: 18px;
+      }
+      .contents .intro p { margin: 0; font-size: 14px; line-height: 1.72; color: #486581; }
+      .contents .intro-card { padding: 18px 20px; }
+      .contents .intro-card strong {
+        display: block;
+        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+        font-size: 15px;
+      }
+      .contents .intro-card span { display: block; margin-top: 8px; font-size: 12px; line-height: 1.62; color: var(--muted); }
+      .toc-grid { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 18px; }
+      .toc-card {
+        width: 292px;
+        min-height: 180px;
+        border-radius: 26px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, .78);
+      }
+      .toc-head { padding: 16px 18px 14px; color: white; }
+      .toc-head h3 { margin: 0; font-size: 20px; line-height: 1.12; }
+      .toc-head p { margin: 8px 0 0; font-size: 11px; line-height: 1.55; color: rgba(255, 255, 255, .88); }
+      .toc-line {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        align-items: end;
+        padding: 11px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .toc-line:last-child { border-bottom: 0; }
+      .toc-line strong { display: block; font-size: 13px; }
+      .toc-line span { display: block; margin-top: 4px; font-size: 10px; color: #6c8294; }
+      .toc-page { font-size: 12px; font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif; }
+      .opener { color: white; }
+      .opener .hero::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(100deg, rgba(8, 23, 38, .8) 0%, rgba(8, 23, 38, .62) 34%, rgba(8, 23, 38, .22) 68%, rgba(8, 23, 38, .12) 100%);
+      }
+      .opener .shell {
+        display: grid;
+        grid-template-columns: 1.04fr .96fr;
+        gap: 24px;
+        min-height: 595px;
+        align-items: end;
+      }
+      .opener-copy {
+        max-width: 448px;
+        padding: 26px 28px;
+        border-radius: 32px;
+        border: 1px solid rgba(255, 255, 255, .16);
+        background: linear-gradient(140deg, rgba(8, 23, 38, .54) 0%, rgba(8, 23, 38, .28) 100%);
+      }
+      .opener-copy p { margin: 0; font-size: 16px; line-height: 1.72; color: rgba(255, 255, 255, .92); }
+      .opener-copy h2 { margin: 14px 0 16px; font-size: 50px; line-height: 1.01; }
+      .opener-copy .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+      .opener-side {
+        margin-left: auto;
+        width: 100%;
+        max-width: 352px;
+        padding: 24px;
+        border-radius: 32px 32px 0 32px;
+        border: 1px solid rgba(255, 255, 255, .16);
+        background: rgba(255, 255, 255, .12);
+      }
+      .opener-side h3 { margin: 0 0 12px; font-size: 18px; }
+      .opener-side .line { padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, .16); font-size: 13px; line-height: 1.48; }
+      .opener-side .line:last-child { border-bottom: 0; }
+      .data-page { background: linear-gradient(180deg, #f0f4f7 0%, #f0f4f7 136px, #ffffff 136px, #ffffff 100%); }
+      .section-head {
+        display: grid;
+        grid-template-columns: 1.35fr .65fr;
+        gap: 18px;
+      }
+      .section-head .main, .section-head .meta { padding: 20px 22px; }
+      .section-head .kicker {
+        margin: 0;
+        font-size: 11px;
+        letter-spacing: .18em;
+        text-transform: uppercase;
+        color: var(--section-accent, var(--primary));
+      }
+      .section-head h3 { margin: 6px 0 0; font-size: 32px; line-height: 1.05; color: var(--section-accent, var(--primary)); }
+      .section-head p { margin: 10px 0 0; font-size: 13px; line-height: 1.68; color: #4d6679; }
+      .section-head .meta strong {
+        display: block;
+        margin-bottom: 10px;
+        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+        font-size: 15px;
+      }
+      .section-head .meta ul { margin: 0; padding-left: 18px; }
+      .section-head .meta li { font-size: 12px; line-height: 1.62; color: #4d6679; }
+      .summary-foot {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+        font-size: 11px;
+        line-height: 1.58;
+        color: var(--muted);
+      }
+      .metric-grid { display: flex; gap: 12px; margin-top: 18px; }
+      .metric-box {
+        flex: 1;
+        min-height: 98px;
+        padding: 14px 16px;
+        border-radius: 22px;
+      }
+      .metric-box span {
+        display: block;
+        font-size: 10px;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        color: #6a8092;
+      }
+      .metric-box strong { display: block; margin-top: 9px; font-size: 24px; color: var(--section-accent, var(--secondary)); }
+      .metric-box em { display: block; margin-top: 6px; font-style: normal; font-size: 11px; color: #4d6679; }
+      .metric-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 98px;
+        border-radius: 22px;
+        border: 1px dashed var(--line);
+        background: rgba(255, 255, 255, .72);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .content-grid {
+        display: grid;
+        grid-template-columns: 1.04fr .96fr;
+        gap: 18px;
+        margin-top: 18px;
+      }
+      .stack { display: flex; flex-direction: column; gap: 14px; }
+      .card.pad { padding: 20px 22px; }
+      .card h4 { margin: 0 0 12px; font-size: 16px; color: var(--section-accent, var(--secondary)); }
+      .story p { margin: 0 0 12px; font-size: 13px; line-height: 1.74; color: #223b52; }
+      .quote {
+        margin: 0;
+        font-size: 23px;
+        line-height: 1.5;
+        color: #13293d;
+        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+      }
+      .signature {
+        margin-top: 18px;
+        font-size: 11px;
+        letter-spacing: .16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .visual-card { overflow: hidden; }
+      .visual-card img { display: block; width: 100%; height: 214px; object-fit: cover; }
+      .visual-card .caption { padding: 16px 18px 18px; font-size: 12px; line-height: 1.66; color: #4d6679; }
+      .chart-card { padding: 18px; }
+      .chart-card img { display: block; width: 100%; border-radius: 18px; background: white; }
+      .fact-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+      .fact {
+        width: calc(50% - 6px);
+        padding: 12px 14px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: white;
+      }
+      .fact span {
+        display: block;
+        font-size: 10px;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        color: #6a8092;
+      }
+      .fact strong { display: block; margin-top: 8px; font-size: 14px; line-height: 1.42; }
+      .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+      .chips span {
+        padding: 8px 12px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: white;
+        font-size: 11px;
+        color: #4d6679;
+      }
+      .bullet-list, .appendix .notes { margin: 0; padding-left: 18px; }
+      .bullet-list li, .appendix .notes li { margin-bottom: 8px; font-size: 13px; line-height: 1.64; color: #223b52; }
+      .appendix { background: linear-gradient(180deg, #f3f5f7 0%, #ffffff 100%); }
+      .appendix .subtitle { margin: 12px 0 16px; max-width: 740px; font-size: 13px; line-height: 1.68; color: #4d6679; }
+      .appendix .card { padding: 18px 20px; }
+      .appendix .band { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+      .appendix .band span {
+        padding: 8px 12px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, .76);
+        font-size: 11px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <section class="page cover">
+      <div class="hero"><img src="{{ visual_data_uris['cover_hero'] }}" alt="Kapak görseli" /></div>
+      <div class="shell">
+        <div class="cover-copy">
+          <div class="brand">
+            <img src="{{ monogram_data_uri }}" alt="Marka işareti" />
+            <div>
+              <strong>{{ tenant.name }}</strong>
+              <span>AI Destekli Report Factory</span>
+            </div>
+          </div>
+          <p class="eyebrow">ERP + kanıt + kontrollü publish hattı</p>
+          <h1 class="heading">Sürdürülebilirlik Raporu / {{ reporting_year }}</h1>
+          <p class="lede">{{ company_profile.legal_name }} için operasyon verileri, doğrulanmış evidence katmanı ve marka uyumlu editoryal kompozisyon ile hazırlanan kurumsal sürdürülebilirlik raporu.</p>
+          <div class="meta">
+            <p>{{ company_profile.sustainability_approach or company_profile.description or "" }}</p>
+            <p>{{ project.name }} / {{ company_profile.headquarters or "Türkiye" }}</p>
+          </div>
+        </div>
+        <div class="footer">
+          <div class="metric-chips">
+            {% for item in cover_metrics %}
+            <div class="mini">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="factory">
+            <p>Bu paket; sync, normalize, outline, write, verify, charts-images, compose ve controlled publish aşamalarını tek rapor fabrikasında toplar.</p>
+            <ul>
+              <li>AI görseller yalnızca dekoratif kullanım içindir.</li>
+              <li>Sayısal ifadeler hesaplama ekleri ile korunur.</li>
+              <li>Atıf ve varsayım kayıtları paket içinde saklanır.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="page-no">01</div>
+    </section>
+
+    <section class="page contents">
+      <div class="rail">
+        <div class="rail-shell">
+          <div class="rail-top">
+            <img src="{{ monogram_data_uri }}" alt="Marka işareti" />
+            <div>{{ tenant.name }}</div>
+          </div>
+          <div>
+            {% for item in toc_rail_items %}
+            <div class="rail-item" style="border-color: {{ item.accent_color }};">
+              <strong>{{ item.icon }}</strong>
+              <span>{{ item.label }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="shell">
+        <h2 class="heading">İçindekiler</h2>
+        <div class="intro">
+          <p>Rapor akışı; yönetim perspektifi, şirket bağlamı, yönetişim, çifte önemlilik, çevresel performans, sosyal performans ve izlenebilir ekler arasında süreklilik kuracak şekilde tasarlanmıştır. Her sayfa, atıf zinciri ve hesaplama artefaktlarıyla desteklenen veriyi editoryal kaliteyle bir araya getirir.</p>
+          <div class="card intro-card">
+            <strong>Package Notu</strong>
+            <span>Final paket içinde PDF, visual manifest, citation index, calculation appendix, coverage matrix ve assumption register korunur.</span>
+          </div>
+        </div>
+        <div class="toc-grid">
+          {% for card in toc_cards %}
+          <div class="toc-card">
+            <div class="toc-head" style="background: linear-gradient(135deg, {{ card.accent_color }} 0%, {{ card.accent_color }}cc 100%);">
+              <h3 class="heading">{{ card.title }}</h3>
+              <p>{{ card.summary }}</p>
+            </div>
+            {% for line in card.lines %}
+            <div class="toc-line">
+              <div>
+                <a href="#section-{{ line.anchor }}"><strong>{{ line.label }}</strong></a>
+                <span>{{ line.page_range }}</span>
+              </div>
+              <div class="toc-page">{{ line.page_hint }}</div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="page-no">02</div>
+    </section>
+
+    {% for section in section_payloads %}
+    {% set hero_uri = visual_data_uris.get(section.primary_visual_slot, visual_data_uris['cover_hero']) %}
+    {% set chart_uri = visual_data_uris.get(section.chart_visual_slot) if section.chart_visual_slot else None %}
+    {% if not chart_uri and section.chart_svg_b64 %}
+    {% set chart_uri = 'data:image/svg+xml;base64,' ~ section.chart_svg_b64 %}
+    {% endif %}
+    <section id="section-{{ section.section_code }}" class="page opener">
+      <div class="hero"><img src="{{ hero_uri }}" alt="{{ section.title }} görseli" /></div>
+      <div class="shell">
+        <div class="opener-copy">
+          <p class="eyebrow">{{ section.group_title }}</p>
+          <h2 class="heading">{{ section.title }}</h2>
+          <p>{{ section.purpose }}</p>
+          <div class="meta">
+            <span class="chip">{{ section.metrics|length }} KPI satırı</span>
+            <span class="chip">{{ section.claim_count }} PASS iddia</span>
+            {% if section.freshness_label %}<span class="chip">{{ section.freshness_label }}</span>{% endif %}
+            {% if section.source_labels %}<span class="chip">{{ section.source_labels|join(" / ") }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="opener-side">
+          <h3 class="heading">Bölüm Çerçevesi</h3>
+          {% for line in section.opener_lines %}
+          <div class="line">{{ line }}</div>
+          {% endfor %}
+          <div class="line">Sayfa aralığı {{ "%02d"|format(section.opener_page_number) }}-{{ "%02d"|format(section.data_page_number) }}</div>
+        </div>
+      </div>
+      <div class="page-no">{{ "%02d"|format(section.opener_page_number) }}</div>
+    </section>
+
+    <section class="page data-page" style="--section-accent: {{ section.group_color }};">
+      <div class="shell">
+        <div class="section-head">
+          <div class="card main">
+            <p class="kicker">{{ section.group_title }}</p>
+            <h3 class="heading">{{ section.title }}</h3>
+            <p>{{ section.summary }}</p>
+          </div>
+          <div class="card meta">
+            <strong>Bölüm Özeti</strong>
+            {% if section.highlights %}
+            <ul>
+              {% for item in section.highlights[:4] %}
+              <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <ul><li>Bu bölüm için sistematik highlight üretimi tamamlandı.</li></ul>
+            {% endif %}
+            <div class="summary-foot">
+              {% if section.source_labels %}<div>Kaynaklar: {{ section.source_labels|join(", ") }}</div>{% endif %}
+              {% if section.freshness_label %}<div>Son sync: {{ section.freshness_label }}</div>{% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="metric-grid">
+          {% if section.metric_rows %}
+            {% for row in section.metric_rows[:4] %}
+            <div class="card metric-box">
+              <span>{{ row.code }}</span>
+              <strong class="heading">{{ row.value }}</strong>
+              <em>{{ row.name }} / {{ row.source }}</em>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="metric-empty">Bu bölüm anlatı ve yönetişim ağırlıklı ilerler.</div>
+          {% endif %}
+        </div>
+
+        <div class="content-grid">
+          <div class="stack">
+            {% if section.layout_variant == "message" %}
+            <div class="card pad">
+              <h4 class="heading">Yönetim Perspektifi</h4>
+              <blockquote class="quote">{{ section.story_paragraphs[0] if section.story_paragraphs else section.summary }}</blockquote>
+              <div class="signature">{{ company_profile.ceo_name or tenant.name }}</div>
+            </div>
+            {% endif %}
+            <div class="card pad">
+              <h4 class="heading">
+                {% if section.layout_variant == "profile" %}Operasyonel Hikâye{% elif section.layout_variant == "materiality" %}Önceliklendirme Anlatısı{% else %}Narrative Layer{% endif %}
+              </h4>
+              <div class="story">
+                {% if section.layout_variant == "message" %}
+                  {% for paragraph in section.story_paragraphs[1:] %}
+                  <p>{{ paragraph }}</p>
+                  {% endfor %}
+                {% else %}
+                  {% for paragraph in section.story_paragraphs %}
+                  <p>{{ paragraph }}</p>
+                  {% endfor %}
+                {% endif %}
+              </div>
+            </div>
+            <div class="card pad">
+              <h4 class="heading">Kanıt ve İzlenebilirlik</h4>
+              <ul class="bullet-list">
+                {% for item in section.evidence_points %}
+                <li>{{ item }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% if section.claims %}
+            <div class="card pad">
+              <h4 class="heading">Doğrulanmış Anlatı Başlıkları</h4>
+              <ul class="bullet-list">
+                {% for claim in section.claims[:3] %}
+                <li>{{ claim }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+          </div>
+
+          <div class="stack">
+            <div class="card visual-card">
+              <img src="{{ hero_uri }}" alt="{{ section.title }} görseli" />
+              <div class="caption">{{ section.hero_caption }}</div>
+            </div>
+            {% if chart_uri %}
+            <div class="card chart-card">
+              <h4 class="heading">Grafik ve Trend Yüzeyi</h4>
+              <img src="{{ chart_uri }}" alt="{{ section.title }} grafiği" />
+            </div>
+            {% endif %}
+            {% if section.layout_variant == "profile" %}
+            <div class="card pad">
+              <h4 class="heading">Kurumsal Profil Özeti</h4>
+              <div class="fact-grid">
+                {% for fact in profile_facts %}
+                <div class="fact">
+                  <span>{{ fact.label }}</span>
+                  <strong>{{ fact.value }}</strong>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            {% else %}
+            <div class="card pad">
+              <h4 class="heading">{% if section.layout_variant == "materiality" %}Insight Katmanı{% else %}KPI Snapshot{% endif %}</h4>
+              {% if section.layout_variant == "materiality" %}
+              <div class="fact-grid">
+                {% for chip in section.insight_chips %}
+                <div class="fact">
+                  <span>Insight</span>
+                  <strong>{{ chip }}</strong>
+                </div>
+                {% endfor %}
+              </div>
+              {% else %}
+              <table>
+                <thead>
+                  <tr>
+                    <th>Metric</th>
+                    <th>Değer</th>
+                    <th>Periyot</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in section.metric_rows %}
+                  <tr>
+                    <td>{{ row.name }}</td>
+                    <td>{{ row.value }}</td>
+                    <td>{{ row.period }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% endif %}
+            </div>
+            {% endif %}
+            <div class="card pad">
+              <h4 class="heading">Insight Chips</h4>
+              <div class="chips">
+                {% for chip in section.insight_chips %}
+                <span>{{ chip }}</span>
+                {% endfor %}
+                {% for item in section.appendix_labels %}
+                <span>{{ item }}</span>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="page-no">{{ "%02d"|format(section.data_page_number) }}</div>
+    </section>
+    {% endfor %}
+
+    {% for chunk in citation_chunks %}
+    <section {% if loop.first %}id="section-APPENDIX"{% endif %} class="page appendix">
+      <div class="shell">
+        <h2 class="heading">Atıf Dizini</h2>
+        <p class="subtitle">Final paketteki her PASS iddia, kaynak belge ve chunk düzeyindeki referanslarıyla birlikte korunur. Bu sayfa, editoryal anlatı ile denetim izi arasındaki bağlantıyı görünür kılar.</p>
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>Bölüm</th>
+                <th>İddia</th>
+                <th>Kaynak</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for citation in chunk %}
+              <tr>
+                <td>{{ citation.section_code }}</td>
+                <td>{{ citation.statement }}</td>
+                <td>{{ citation.reference }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="band">
+          <span>Sayfa {{ citation_page_start + loop.index0 }}</span>
+          <span>Citation appendix</span>
+          <span>Controlled publish pack</span>
+        </div>
+      </div>
+      <div class="page-no">{{ "%02d"|format(citation_page_start + loop.index0) }}</div>
+    </section>
+    {% endfor %}
+
+    {% for chunk in calculation_chunks %}
+    <section class="page appendix">
+      <div class="shell">
+        <h2 class="heading">Hesaplama Ekleri</h2>
+        <p class="subtitle">Sayısal ifadeler yalnızca deterministik hesaplama artefaktlarıyla yayımlanır. Formül adı, çıktı ve iz referansları bu ek yüzeyinde saklanır.</p>
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>Formül</th>
+                <th>Çıktı</th>
+                <th>İz Referansı</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for calculation in chunk %}
+              <tr>
+                <td>{{ calculation.formula_name }}</td>
+                <td>{{ calculation.output_value }} {{ calculation.output_unit }}</td>
+                <td>{{ calculation.trace_log_ref }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="band">
+          <span>Sayfa {{ calculation_page_start + loop.index0 }}</span>
+          <span>Deterministik calculation appendix</span>
+          <span>ERP + evidence normalization</span>
+        </div>
+      </div>
+      <div class="page-no">{{ "%02d"|format(calculation_page_start + loop.index0) }}</div>
+    </section>
+    {% endfor %}
+
+    <section class="page appendix">
+      <div class="shell">
+        <h2 class="heading">Varsayım Kaydı</h2>
+        <p class="subtitle">Raporun otomasyon çerçevesi, veri sınırları ve görsel politika notları bu sayfada kaydedilir. Amaç boşluk doldurmak değil; hangi koşullarda üretim yapıldığını açıkça göstermektir.</p>
+        <div class="card">
+          <ul class="notes">
+            {% for assumption in assumptions %}
+            <li>{{ assumption }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div class="card" style="margin-top: 16px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Başlık</th>
+                <th>Durum</th>
+                <th>Not</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Blueprint versiyonu</td>
+                <td>{{ project.code }}</td>
+                <td>Türkçe-first, brandable report factory akışı</td>
+              </tr>
+              <tr>
+                <td>Görsel politika</td>
+                <td>Dekoratif AI</td>
+                <td>Claim taşıyan hiçbir görsel AI ile üretilmez</td>
+              </tr>
+              <tr>
+                <td>Dağıtım modeli</td>
+                <td>Controlled publish</td>
+                <td>PDF, visual manifest ve appendix artefaktları birlikte saklanır</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="page-no">{{ "%02d"|format(assumption_page_number) }}</div>
+    </section>
+  </body>
+</html>

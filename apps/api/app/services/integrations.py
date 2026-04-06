@@ -182,13 +182,85 @@ class NormalizedFactInput:
     metadata_json: dict[str, Any]
 
 
+CONNECTOR_DEFAULT_CONFIDENCE = {
+    "sap_odata": 0.98,
+    "logo_tiger_sql_view": 0.96,
+    "netsis_rest": 0.95,
+}
+
+UNIT_ALIASES = {
+    "%": "%",
+    "percent": "%",
+    "percentage": "%",
+    "pct": "%",
+    "employee": "employee",
+    "employees": "employee",
+    "employee_count": "employee",
+    "count": "count",
+    "adet": "count",
+    "rate": "rate",
+    "tco2e": "tCO2e",
+    "tons_co2e": "tCO2e",
+    "ton_co2e": "tCO2e",
+}
+
+
 def normalize_connector_type(raw: str) -> str:
     normalized = raw.strip().lower().replace("-", "_").replace(" ", "_")
     return CONNECTOR_TYPE_ALIASES.get(normalized, normalized)
 
 
+def _pick_first(row: dict[str, Any], *keys: str) -> Any:
+    for raw_key in keys:
+        if "." in raw_key:
+            current: Any = row
+            path_ok = True
+            for part in raw_key.split("."):
+                if not isinstance(current, dict) or part not in current:
+                    path_ok = False
+                    break
+                current = current[part]
+            if path_ok and current is not None:
+                return current
+            continue
+        if raw_key in row and row[raw_key] is not None:
+            return row[raw_key]
+    return None
+
+
+def _normalize_unit(value: Any) -> str | None:
+    if value is None:
+        return None
+    unit = str(value).strip()
+    if not unit:
+        return None
+    return UNIT_ALIASES.get(unit.lower(), unit)
+
+
 def _coerce_records(config: IntegrationConfig) -> list[dict[str, Any]]:
     payload = config.sample_payload or {}
+    if config.connector_type == "sap_odata":
+        candidate = payload.get("value")
+        if isinstance(candidate, list):
+            return [row for row in candidate if isinstance(row, dict)]
+        nested = payload.get("d")
+        if isinstance(nested, dict) and isinstance(nested.get("results"), list):
+            return [row for row in nested["results"] if isinstance(row, dict)]
+    if config.connector_type == "logo_tiger_sql_view":
+        candidate = payload.get("rows")
+        if isinstance(candidate, list):
+            return [row for row in candidate if isinstance(row, dict)]
+    if config.connector_type == "netsis_rest":
+        for key in ("items", "results"):
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                return [row for row in candidate if isinstance(row, dict)]
+        data_payload = payload.get("data")
+        if isinstance(data_payload, dict):
+            for key in ("items", "records"):
+                candidate = data_payload.get(key)
+                if isinstance(candidate, list):
+                    return [row for row in candidate if isinstance(row, dict)]
     for key in ("records", "value", "rows", "items", "results"):
         candidate = payload.get(key)
         if isinstance(candidate, list):
@@ -197,38 +269,160 @@ def _coerce_records(config: IntegrationConfig) -> list[dict[str, Any]]:
     return [dict(row) for row in default_rows]
 
 
+def _resolve_cursor_after(config: IntegrationConfig, rows: list[dict[str, Any]], fallback: datetime) -> str:
+    payload = config.sample_payload or {}
+    if config.connector_type == "sap_odata":
+        for candidate in (
+            payload.get("@odata.deltaLink"),
+            payload.get("delta_token"),
+            payload.get("deltaLink"),
+            _pick_first(payload, "metadata.delta_token"),
+        ):
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+    if config.connector_type == "logo_tiger_sql_view":
+        for candidate in (
+            payload.get("snapshot_watermark"),
+            payload.get("watermark"),
+        ):
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        row_markers = [
+            str(marker).strip()
+            for row in rows
+            for marker in (
+                _pick_first(row, "snapshot_watermark", "watermark", "updated_at", "updatedAt"),
+            )
+            if marker is not None and str(marker).strip()
+        ]
+        if row_markers:
+            return max(row_markers)
+    if config.connector_type == "netsis_rest":
+        for candidate in (
+            payload.get("cursor"),
+            payload.get("next_cursor"),
+            payload.get("updated_at_max"),
+            payload.get("updatedAtMax"),
+        ):
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        row_markers = [
+            str(marker).strip()
+            for row in rows
+            for marker in (
+                _pick_first(row, "updated_at", "updatedAt", "cursor"),
+            )
+            if marker is not None and str(marker).strip()
+        ]
+        if row_markers:
+            return max(row_markers)
+    return fallback.isoformat()
+
+
 def _normalize_row(config: IntegrationConfig, row: dict[str, Any], row_index: int) -> NormalizedFactInput:
-    metric_code = str(row.get("metric_code") or row.get("metricCode") or "").strip().upper()
-    metric_name = str(row.get("metric_name") or row.get("metricName") or metric_code).strip() or metric_code
-    period_key = str(row.get("period_key") or row.get("period") or row.get("year") or "2025").strip()
-    unit_raw = row.get("unit")
-    unit = str(unit_raw).strip() if unit_raw is not None and str(unit_raw).strip() else None
-    numeric_raw = row.get("value_numeric", row.get("valueNumeric", row.get("value")))
+    metric_code = str(
+        _pick_first(
+            row,
+            "metric_code",
+            "metricCode",
+            "MetricCode",
+            "METRIC_CODE",
+            "METRIC_KODU",
+            "metric.code",
+            "code",
+        )
+        or ""
+    ).strip().upper()
+    metric_name = str(
+        _pick_first(
+            row,
+            "metric_name",
+            "metricName",
+            "MetricName",
+            "METRIC_NAME",
+            "METRIC_ADI",
+            "metric.name",
+            "name",
+        )
+        or metric_code
+    ).strip() or metric_code
+    period_key = str(
+        _pick_first(
+            row,
+            "period_key",
+            "periodKey",
+            "period",
+            "Period",
+            "PERIOD",
+            "year",
+            "Year",
+            "fiscal_year",
+            "FiscalYear",
+            "DONEM",
+        )
+        or "2025"
+    ).strip()
+    unit = _normalize_unit(_pick_first(row, "unit", "Unit", "BIRIM", "metric.unit"))
+    numeric_raw = _pick_first(
+        row,
+        "value_numeric",
+        "valueNumeric",
+        "value",
+        "Value",
+        "DEGER",
+        "metric.value",
+    )
     value_numeric = float(numeric_raw) if isinstance(numeric_raw, (int, float)) else None
     if value_numeric is None:
         try:
             value_numeric = float(str(numeric_raw))
         except (TypeError, ValueError):
             value_numeric = None
-    value_text_raw = row.get("value_text", row.get("valueText"))
+    value_text_raw = _pick_first(row, "value_text", "valueText", "text", "ValueText")
     value_text = str(value_text_raw).strip() if value_text_raw is not None else None
     source_record_id = (
-        str(row.get("source_record_id") or row.get("sourceRecordId") or row.get("id") or "").strip()
+        str(
+            _pick_first(
+                row,
+                "source_record_id",
+                "sourceRecordId",
+                "RecordId",
+                "ROW_ID",
+                "id",
+                "ID",
+            )
+            or ""
+        ).strip()
         or f"{config.connector_type}-{metric_code}-{period_key}-{row_index}"
     )
-    owner = str(row.get("owner") or "").strip() or None
+    owner = str(
+        _pick_first(row, "owner", "Owner", "owner_email", "ownerEmail", "OwnerEmail")
+        or ""
+    ).strip() or None
     trace_ref = (
-        str(row.get("trace_ref") or row.get("traceRef") or "").strip()
+        str(
+            _pick_first(
+                row,
+                "trace_ref",
+                "traceRef",
+                "TraceRef",
+                "TRACE_REF",
+                "trace.ref",
+            )
+            or ""
+        ).strip()
         or f"{config.connector_type}://{source_record_id}"
     )
-    freshness_raw = row.get("freshness_at") or row.get("freshnessAt")
+    freshness_raw = _pick_first(row, "freshness_at", "freshnessAt", "updated_at", "updatedAt")
     freshness_at = _utcnow()
     if isinstance(freshness_raw, str) and freshness_raw.strip():
         try:
             freshness_at = datetime.fromisoformat(freshness_raw.replace("Z", "+00:00"))
         except ValueError:
             freshness_at = _utcnow()
-    confidence_raw = row.get("confidence_score", row.get("confidenceScore", 0.95))
+    confidence_raw = _pick_first(row, "confidence_score", "confidenceScore")
+    if confidence_raw is None:
+        confidence_raw = CONNECTOR_DEFAULT_CONFIDENCE.get(config.connector_type, 0.95)
     confidence_score = float(confidence_raw) if isinstance(confidence_raw, (int, float)) else 0.95
 
     metadata = {
@@ -340,7 +534,7 @@ def run_connector_sync(*, db: Session, integration: IntegrationConfig) -> Connec
         tenant_id=integration.tenant_id,
         project_id=integration.project_id,
         status="running",
-        current_stage="normalize",
+        current_stage="extract",
         cursor_before=integration.last_cursor,
         started_at=started_at,
         diagnostics_json={},
@@ -348,13 +542,16 @@ def run_connector_sync(*, db: Session, integration: IntegrationConfig) -> Connec
     db.add(job)
     db.flush()
 
+    source_rows = _coerce_records(integration)
     normalized_rows = [
         _normalize_row(integration, row, row_index)
-        for row_index, row in enumerate(_coerce_records(integration), start=1)
+        for row_index, row in enumerate(source_rows, start=1)
     ]
+    cursor_after = _resolve_cursor_after(integration, source_rows, started_at)
 
     inserted_count = 0
     updated_count = 0
+    job.current_stage = "normalize"
     for normalized in normalized_rows:
         existing = db.scalar(
             select(CanonicalFact).where(
@@ -402,7 +599,7 @@ def run_connector_sync(*, db: Session, integration: IntegrationConfig) -> Connec
         updated_count += 1
 
     completed_at = _utcnow()
-    integration.last_cursor = completed_at.isoformat()
+    integration.last_cursor = cursor_after
     integration.last_synced_at = completed_at
 
     job.status = "completed"
@@ -410,11 +607,18 @@ def run_connector_sync(*, db: Session, integration: IntegrationConfig) -> Connec
     job.record_count = len(normalized_rows)
     job.inserted_count = inserted_count
     job.updated_count = updated_count
-    job.cursor_after = integration.last_cursor
+    job.cursor_after = cursor_after
     job.completed_at = completed_at
     job.diagnostics_json = {
         "connector_type": integration.connector_type,
+        "delta_mode": {
+            "sap_odata": "delta_token",
+            "logo_tiger_sql_view": "snapshot_watermark",
+            "netsis_rest": "cursor_or_updated_at",
+        }.get(integration.connector_type, "generic"),
         "normalized_metrics": sorted({row.metric_code for row in normalized_rows}),
+        "cursor_before": job.cursor_before,
+        "cursor_after": cursor_after,
     }
     db.flush()
     return job

@@ -6,6 +6,7 @@ from worker.core.settings import settings
 from worker.jobs import (
     run_document_extraction_job,
     run_document_indexing_job,
+    run_report_package_job,
     sample_health_job,
 )
 
@@ -200,3 +201,74 @@ async def test_run_document_indexing_job_marks_failed_after_retry_exhausted(
 
     assert failed_messages
     assert failed_messages[0].startswith("Retry exhausted:")
+
+
+@pytest.mark.asyncio
+async def test_run_report_package_job_requires_report_run_id() -> None:
+    with pytest.raises(ValueError, match="report_run_id"):
+        await run_report_package_job({}, {})
+
+
+@pytest.mark.asyncio
+async def test_run_report_package_job_delegates_to_sync_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_runner(report_run_id: str) -> dict[str, str]:
+        return {
+            "status": "completed",
+            "job": "run_report_package_job",
+            "report_run_id": report_run_id,
+            "package_job_id": "pkg_123",
+            "artifact_count": 6,
+        }
+
+    monkeypatch.setattr(jobs, "_run_report_package_sync", fake_runner)
+
+    result = await run_report_package_job({}, {"report_run_id": "run_123"})
+    assert result["status"] == "completed"
+    assert result["job"] == "run_report_package_job"
+    assert result["report_run_id"] == "run_123"
+    assert result["package_job_id"] == "pkg_123"
+
+
+@pytest.mark.asyncio
+async def test_run_report_package_job_retries_then_marks_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_runner(_report_run_id: str) -> dict[str, str]:
+        raise RuntimeError("package compose failed")
+
+    retry_calls: list[tuple[int, int, str]] = []
+    failed_messages: list[str] = []
+
+    def fake_mark_retry(
+        _report_run_id: str,
+        *,
+        attempt: int,
+        defer_seconds: int,
+        error_message: str,
+    ) -> None:
+        retry_calls.append((attempt, defer_seconds, error_message))
+
+    def fake_mark_failed(
+        _report_run_id: str,
+        *,
+        error_message: str,
+    ) -> None:
+        failed_messages.append(error_message)
+
+    monkeypatch.setattr(jobs, "_run_report_package_sync", fake_runner)
+    monkeypatch.setattr(jobs, "_mark_report_package_retry_state_sync", fake_mark_retry)
+    monkeypatch.setattr(jobs, "_mark_report_package_failed_state_sync", fake_mark_failed)
+    monkeypatch.setattr(settings, "package_job_max_retries", 2)
+    monkeypatch.setattr(settings, "package_retry_base_seconds", 5)
+    monkeypatch.setattr(settings, "package_retry_max_defer_seconds", 60)
+
+    with pytest.raises(Retry) as exc_info:
+        await run_report_package_job({"job_try": 1}, {"report_run_id": "run_retry"})
+    assert retry_calls == [(1, 5, "package compose failed")]
+    assert exc_info.value.defer_score == 5000
+
+    with pytest.raises(RuntimeError):
+        await run_report_package_job({"job_try": 2}, {"report_run_id": "run_retry"})
+    assert failed_messages == ["Retry exhausted: package compose failed"]

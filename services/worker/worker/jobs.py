@@ -153,6 +153,195 @@ def _mark_index_failed_state_sync(extraction_id: str, *, error_message: str) -> 
         )
 
 
+def _mark_report_package_retry_state_sync(
+    report_run_id: str,
+    *,
+    attempt: int,
+    defer_seconds: int,
+    error_message: str,
+) -> None:
+    _ensure_api_path()
+
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from app.db.session import SessionLocal
+    from app.models.core import ReportPackage, ReportRun
+
+    with SessionLocal() as db:
+        report_run = db.get(ReportRun, report_run_id)
+        package = db.scalar(select(ReportPackage).where(ReportPackage.report_run_id == report_run_id))
+        if report_run is None or package is None:
+            return
+
+        history = package.stage_history_json or []
+        if not isinstance(history, list):
+            history = []
+        history.append(
+            {
+                "stage": package.current_stage or "queued",
+                "status": "retrying",
+                "at_utc": datetime.now(timezone.utc).isoformat(),
+                "detail": (
+                    f"attempt={attempt} defer_seconds={defer_seconds} "
+                    f"reason={error_message}"
+                ),
+            }
+        )
+        package.stage_history_json = history
+        package.status = "queued"
+        package.error_message = error_message
+        package.completed_at = None
+        report_run.package_status = "queued"
+        db.commit()
+
+
+def _mark_report_package_failed_state_sync(
+    report_run_id: str,
+    *,
+    error_message: str,
+) -> None:
+    _ensure_api_path()
+
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from app.db.session import SessionLocal
+    from app.models.core import AuditEvent, ReportPackage, ReportRun
+
+    with SessionLocal() as db:
+        report_run = db.get(ReportRun, report_run_id)
+        package = db.scalar(select(ReportPackage).where(ReportPackage.report_run_id == report_run_id))
+        if report_run is None:
+            return
+
+        failed_at = datetime.now(timezone.utc)
+        if package is not None:
+            history = package.stage_history_json or []
+            if not isinstance(history, list):
+                history = []
+            history.append(
+                {
+                    "stage": package.current_stage or "queued",
+                    "status": "failed",
+                    "at_utc": failed_at.isoformat(),
+                    "detail": error_message,
+                }
+            )
+            package.stage_history_json = history
+            package.status = "failed"
+            package.error_message = error_message
+            package.completed_at = failed_at
+
+        report_run.package_status = "failed"
+        if report_run.visual_generation_status == "running":
+            report_run.visual_generation_status = "failed"
+
+        db.add(
+            AuditEvent(
+                tenant_id=report_run.tenant_id,
+                project_id=report_run.project_id,
+                report_run_id=report_run.id,
+                event_type="publish",
+                event_name="publish_failed",
+                event_payload={
+                    "schema_version": "publish_gate_v1",
+                    "run_id": report_run.id,
+                    "blocked": False,
+                    "published": False,
+                    "error_code": "REPORT_PACKAGE_GENERATION_FAILED",
+                    "reason": error_message,
+                    "generated_at_utc": failed_at.isoformat(),
+                },
+            )
+        )
+        db.commit()
+
+
+def _run_report_package_sync(report_run_id: str) -> dict[str, Any]:
+    _ensure_api_path()
+
+    from datetime import datetime, timezone
+
+    from app.db.session import SessionLocal
+    from app.models.core import AuditEvent, ReportRun
+    from app.services.report_factory import REPORT_PDF_ARTIFACT_TYPE, ensure_report_package
+
+    with SessionLocal() as db:
+        report_run = db.get(ReportRun, report_run_id)
+        if report_run is None:
+            raise ValueError(f"Report run not found: {report_run_id}")
+
+        package_result = ensure_report_package(db=db, report_run=report_run)
+        report_run.status = "published"
+        report_run.publish_ready = True
+        if report_run.completed_at is None:
+            report_run.completed_at = datetime.now(timezone.utc)
+
+        report_pdf = next(
+            (
+                artifact
+                for artifact in package_result.artifacts
+                if artifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE
+            ),
+            None,
+        )
+        event_payload = {
+            "schema_version": "publish_gate_v1",
+            "run_id": report_run.id,
+            "blocked": False,
+            "published": True,
+            "package_job_id": package_result.package.id,
+            "package_status": package_result.package.status,
+            "artifacts": [
+                {
+                    "artifact_id": artifact.id,
+                    "artifact_type": artifact.artifact_type,
+                    "filename": artifact.filename,
+                    "content_type": artifact.content_type,
+                    "size_bytes": artifact.size_bytes,
+                    "checksum": artifact.checksum,
+                }
+                for artifact in package_result.artifacts
+            ],
+            "report_pdf": (
+                {
+                    "artifact_id": report_pdf.id,
+                    "artifact_type": report_pdf.artifact_type,
+                    "filename": report_pdf.filename,
+                    "content_type": report_pdf.content_type,
+                    "size_bytes": report_pdf.size_bytes,
+                    "checksum": report_pdf.checksum,
+                }
+                if report_pdf is not None
+                else None
+            ),
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        db.add(
+            AuditEvent(
+                tenant_id=report_run.tenant_id,
+                project_id=report_run.project_id,
+                report_run_id=report_run.id,
+                event_type="publish",
+                event_name="publish_completed",
+                event_payload=event_payload,
+            )
+        )
+        db.commit()
+
+        return {
+            "status": package_result.package.status,
+            "job": "run_report_package_job",
+            "report_run_id": report_run.id,
+            "package_job_id": package_result.package.id,
+            "artifact_count": len(package_result.artifacts),
+            "report_pdf_artifact_id": report_pdf.id if report_pdf is not None else None,
+        }
+
+
 async def _enqueue_indexing_job(ctx: dict[str, Any], extraction_id: str) -> str:
     redis = ctx.get("redis")
     if redis is None:
@@ -289,25 +478,43 @@ async def run_document_indexing_job(
             error_message=f"Retry exhausted: {message}",
         )
         raise
+
+
+async def run_report_package_job(
+    ctx: dict[str, Any],
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    job_payload = payload or {}
+    report_run_id = str(job_payload.get("report_run_id", "")).strip()
+    if not report_run_id:
+        raise ValueError("Missing required report_run_id in payload.")
+
+    job_try = int(ctx.get("job_try", 1))
+    max_retries = max(1, settings.package_job_max_retries)
+
+    try:
+        return await asyncio.to_thread(_run_report_package_sync, report_run_id)
+    except ValueError:
+        raise
     except Exception as exc:
         message = str(exc)
         if job_try < max_retries:
             defer_seconds = _compute_defer_seconds(
                 job_try,
-                settings.index_retry_base_seconds,
-                settings.index_retry_max_defer_seconds,
+                settings.package_retry_base_seconds,
+                settings.package_retry_max_defer_seconds,
             )
             await asyncio.to_thread(
-                _mark_index_retry_state_sync,
-                extraction_id,
+                _mark_report_package_retry_state_sync,
+                report_run_id,
                 attempt=job_try,
                 defer_seconds=defer_seconds,
                 error_message=message,
             )
             raise Retry(defer=defer_seconds)
         await asyncio.to_thread(
-            _mark_index_failed_state_sync,
-            extraction_id,
+            _mark_report_package_failed_state_sync,
+            report_run_id,
             error_message=f"Retry exhausted: {message}",
         )
         raise

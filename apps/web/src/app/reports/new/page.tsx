@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
@@ -174,6 +174,9 @@ export default function NewReportPage() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<WizardState>(INITIAL_STATE);
   const workspace = useWorkspaceContext();
+  const workspaceKey = workspace
+    ? `${workspace.tenantId}:${workspace.projectId}`
+    : null;
   const [workspaceTenantName, setWorkspaceTenantName] = useState("");
   const [workspaceTenantSlug, setWorkspaceTenantSlug] = useState("");
   const [workspaceProjectName, setWorkspaceProjectName] = useState("");
@@ -193,59 +196,74 @@ export default function NewReportPage() {
   const score = useMemo(() => completionScore(form), [form]);
   const isLastStep = step === STEP_TITLES.length - 1;
 
-  function applyWorkspaceContext(payload: WorkspaceContextResponse) {
-    const nextWorkspace = {
-      tenantId: payload.tenant.id,
-      projectId: payload.project.id,
-    };
-    persistWorkspaceContext(nextWorkspace);
-    setWorkspaceTenantName(payload.tenant.name);
-    setWorkspaceTenantSlug(payload.tenant.slug);
-    setWorkspaceProjectName(payload.project.name);
-    setWorkspaceProjectCode(payload.project.code);
-    setWorkspaceCurrency(payload.project.reporting_currency);
-    setFactoryContext({
-      companyProfileId: payload.company_profile.id,
-      brandKitId: payload.brand_kit.id,
-      blueprintVersion: payload.blueprint_version,
-      integrations: payload.integrations.map((item) => ({
-        id: item.id,
-        connectorType: item.connector_type,
-        displayName: item.display_name,
-        status: item.status,
-      })),
-    });
-    setConnectorScope(payload.integrations.map((item) => item.connector_type));
-    setForm((prev) => ({
-      ...prev,
-      legalName: prev.legalName || payload.company_profile.legal_name,
-    }));
-  }
+  const applyWorkspaceContext = useCallback(
+    (payload: WorkspaceContextResponse) => {
+      const nextWorkspace = {
+        tenantId: payload.tenant.id,
+        projectId: payload.project.id,
+      };
+      if (
+        !workspace ||
+        workspace.tenantId !== nextWorkspace.tenantId ||
+        workspace.projectId !== nextWorkspace.projectId
+      ) {
+        persistWorkspaceContext(nextWorkspace);
+      }
+      setWorkspaceTenantName(payload.tenant.name);
+      setWorkspaceTenantSlug(payload.tenant.slug);
+      setWorkspaceProjectName(payload.project.name);
+      setWorkspaceProjectCode(payload.project.code);
+      setWorkspaceCurrency(payload.project.reporting_currency);
+      setFactoryContext({
+        companyProfileId: payload.company_profile.id,
+        brandKitId: payload.brand_kit.id,
+        blueprintVersion: payload.blueprint_version,
+        integrations: payload.integrations.map((item) => ({
+          id: item.id,
+          connectorType: item.connector_type,
+          displayName: item.display_name,
+          status: item.status,
+        })),
+      });
+      setConnectorScope(payload.integrations.map((item) => item.connector_type));
+      setForm((prev) => ({
+        ...prev,
+        legalName: prev.legalName || payload.company_profile.legal_name,
+      }));
+    },
+    [workspace],
+  );
 
   useEffect(() => {
-    if (!workspace || factoryContext || contextBusy) {
+    if (!workspace || !workspaceKey) {
       return;
     }
     const currentWorkspace = workspace;
-
-    let cancelled = false;
+    const controller = new AbortController();
+    let active = true;
 
     async function loadWorkspaceContext() {
       setContextBusy(true);
+      setSubmitError(null);
       try {
         const apiBase = getApiBaseUrl();
         const response = await fetch(
           `${apiBase}/catalog/workspace-context?tenant_id=${encodeURIComponent(currentWorkspace.tenantId)}&project_id=${encodeURIComponent(currentWorkspace.projectId)}`,
           {
             headers: buildApiHeaders(currentWorkspace.tenantId),
+            signal: controller.signal,
           },
         );
         const payload = await parseJsonOrThrow<WorkspaceContextResponse>(response);
-        if (!cancelled) {
+        if (active) {
           applyWorkspaceContext(payload);
         }
       } catch (error) {
-        if (!cancelled) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (active) {
+          setFactoryContext(null);
           setSubmitError(
             error instanceof Error
               ? error.message
@@ -253,7 +271,7 @@ export default function NewReportPage() {
           );
         }
       } finally {
-        if (!cancelled) {
+        if (active) {
           setContextBusy(false);
         }
       }
@@ -262,9 +280,10 @@ export default function NewReportPage() {
     void loadWorkspaceContext();
 
     return () => {
-      cancelled = true;
+      active = false;
+      controller.abort();
     };
-  }, [contextBusy, factoryContext, workspace]);
+  }, [applyWorkspaceContext, workspace, workspaceKey]);
 
   const canSubmit =
     form.legalName.trim().length > 1 &&

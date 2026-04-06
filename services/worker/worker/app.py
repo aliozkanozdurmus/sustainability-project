@@ -3,7 +3,12 @@ from urllib.parse import urlparse
 from arq.connections import RedisSettings
 
 from worker.core.settings import settings
-from worker.jobs import run_document_extraction_job, run_document_indexing_job, sample_health_job
+from worker.jobs import (
+    run_document_extraction_job,
+    run_document_indexing_job,
+    run_report_package_job,
+    sample_health_job,
+)
 
 
 def redis_settings_from_url(redis_url: str) -> RedisSettings:
@@ -30,7 +35,12 @@ async def on_shutdown(_ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [sample_health_job, run_document_extraction_job, run_document_indexing_job]
+    functions = [
+        sample_health_job,
+        run_document_extraction_job,
+        run_document_indexing_job,
+        run_report_package_job,
+    ]
     redis_settings = redis_settings_from_url(settings.redis_url)
     queue_name = settings.queue_name
     max_jobs = settings.worker_concurrency

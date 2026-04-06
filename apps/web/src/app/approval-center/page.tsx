@@ -87,6 +87,8 @@ type TriageResponse = {
 };
 
 type RunPublishResponse = {
+  published: boolean;
+  report_run_status: string;
   package_job_id: string | null;
   package_status: string;
   estimated_stage: string | null;
@@ -159,19 +161,27 @@ function useWorkspaceFromQueryAndStorage(): WorkspaceContext | null {
 
   const queryTenant = params.get("tenantId");
   const queryProject = params.get("projectId");
-
-  const workspace = useMemo(() => {
+  const queryWorkspace = useMemo(() => {
     if (queryTenant && queryProject) {
       return { tenantId: queryTenant, projectId: queryProject };
     }
-    return storedWorkspace;
-  }, [queryProject, queryTenant, storedWorkspace]);
+    return null;
+  }, [queryProject, queryTenant]);
+
+  const workspace = queryWorkspace ?? storedWorkspace;
 
   useEffect(() => {
-    if (workspace) {
+    if (
+      workspace &&
+      (
+        !storedWorkspace ||
+        storedWorkspace.tenantId !== workspace.tenantId ||
+        storedWorkspace.projectId !== workspace.projectId
+      )
+    ) {
       persistWorkspaceContext(workspace);
     }
-  }, [workspace]);
+  }, [storedWorkspace, workspace]);
 
   return workspace;
 }
@@ -209,7 +219,7 @@ function ApprovalCenterPageContent() {
   const runStats = useMemo(() => {
     const pending = runs.filter((row) => row.report_run_status !== "published").length;
     const slaRisk = runs.filter((row) => row.triage_required).length;
-    const packageRunning = runs.filter((row) => row.package_status === "running").length;
+    const packageRunning = runs.filter((row) => ["queued", "running"].includes(row.package_status)).length;
     return {
       pending,
       slaRisk,
@@ -217,10 +227,12 @@ function ApprovalCenterPageContent() {
     };
   }, [runs]);
 
-  const loadRuns = useCallback(async () => {
+  const loadRuns = useCallback(async (options?: { silent?: boolean }) => {
     if (!workspace) return;
-    setRunsBusy(true);
-    setError(null);
+    if (!options?.silent) {
+      setRunsBusy(true);
+      setError(null);
+    }
     try {
       const apiBase = getApiBaseUrl();
       const response = await fetch(
@@ -232,15 +244,51 @@ function ApprovalCenterPageContent() {
       const payload = await parseJsonOrThrow<RunListResponse>(response);
       setRuns(payload.items);
     } catch (err) {
-      setError(toUiErrorMessage(err, "Failed to load runs."));
+      if (!options?.silent) {
+        setError(toUiErrorMessage(err, "Failed to load runs."));
+      }
     } finally {
-      setRunsBusy(false);
+      if (!options?.silent) {
+        setRunsBusy(false);
+      }
     }
   }, [workspace]);
 
   useEffect(() => {
     void loadRuns();
   }, [loadRuns]);
+
+  useEffect(() => {
+    if (!workspace) {
+      return;
+    }
+    const shouldPollRuns = runs.some((row) => ["queued", "running"].includes(row.package_status));
+    const shouldPollPackageState =
+      packageState !== null && ["queued", "running"].includes(packageState.package_status);
+    if (!shouldPollRuns && !shouldPollPackageState) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadRuns({ silent: true });
+      if (!shouldPollPackageState) {
+        return;
+      }
+      const apiBase = getApiBaseUrl();
+      void fetch(`${apiBase}${buildRunPackageStatusPath(workspace, packageState.run_id)}`, {
+        headers: buildApiHeaders(workspace.tenantId),
+      })
+        .then((response) => parseJsonOrThrow<RunPackageStatus>(response))
+        .then((payload) => {
+          setPackageState(payload);
+        })
+        .catch(() => undefined);
+    }, 2000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [loadRuns, packageState, runs, workspace]);
 
   async function handleLoadPackageStatus(runId: string) {
     if (!workspace) return;
@@ -338,9 +386,9 @@ function ApprovalCenterPageContent() {
       });
       const payload = await parseJsonOrThrow<RunPublishResponse>(response);
       setNotice(
-        payload.report_pdf
+        payload.published
           ? `Run ${runId} publish edildi. Paket tamamlandı ve PDF indirilebilir.`
-          : `Run ${runId} publish edildi.`,
+          : `Run ${runId} controlled publish kuyruğuna alındı. Aşama: ${payload.estimated_stage ?? payload.package_status}.`,
       );
       setPackageState({
         run_id: runId,
@@ -348,7 +396,7 @@ function ApprovalCenterPageContent() {
         package_status: payload.package_status,
         current_stage: payload.estimated_stage,
         report_quality_score: null,
-        visual_generation_status: "completed",
+        visual_generation_status: "queued",
         artifacts: payload.artifacts,
         stage_history: [],
         generated_at_utc: new Date().toISOString(),
@@ -516,6 +564,7 @@ function ApprovalCenterPageContent() {
           </div>
           <p className="mt-3 text-2xl font-semibold">{runStats.packageRunning}</p>
           <p className="text-muted-foreground text-sm">Aktif package üretim işleri</p>
+          <p className="text-muted-foreground text-xs">queued + running</p>
         </article>
       </div>
 
@@ -603,7 +652,7 @@ function ApprovalCenterPageContent() {
                         type="button"
                         size="sm"
                         onClick={() => void handlePublish(row.run_id)}
-                        disabled={busyRunId === row.run_id || !workspace}
+                        disabled={busyRunId === row.run_id || !workspace || ["queued", "running"].includes(row.package_status)}
                         data-testid={`run-${row.run_id}-publish`}
                       >
                         <Send className="h-4 w-4" />

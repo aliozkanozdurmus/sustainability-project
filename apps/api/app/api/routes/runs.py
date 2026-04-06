@@ -57,12 +57,13 @@ from app.services.report_factory import (
     REPORT_PDF_ARTIFACT_TYPE,
     VISUAL_MANIFEST_ARTIFACT_TYPE,
     build_package_status_payload,
-    ensure_report_package,
+    ensure_report_package_record,
     get_report_artifact_by_id,
     get_report_package,
     list_run_artifacts,
     _to_artifact_response_payload,
 )
+from app.services.job_queue import JobQueueService, get_job_queue_service
 from app.services.report_pdf import download_report_artifact_bytes
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -280,6 +281,40 @@ def _resolve_report_run_status_from_stop_reason(*, stop_reason: str, triage_requ
     if stop_reason in {"failed_retry_exhausted", "rejected_human_approval"}:
         return "failed"
     return "running"
+
+
+def _build_run_publish_response(
+    *,
+    db: Session,
+    report_run: ReportRun,
+    run_id: str,
+    run_attempt: int | None,
+    run_execution_id: str | None,
+    published: bool,
+) -> RunPublishResponse:
+    package = get_report_package(db=db, report_run_id=report_run.id)
+    artifacts = list_run_artifacts(db=db, report_run_id=report_run.id)
+    report_pdf = next(
+        (artifact for artifact in artifacts if artifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE),
+        None,
+    )
+    return RunPublishResponse(
+        schema_version=PUBLISH_GATE_SCHEMA_VERSION,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        run_execution_id=run_execution_id,
+        report_run_status=report_run.status,
+        publish_ready=report_run.publish_ready,
+        published=published,
+        blocked=False,
+        blockers=[],
+        package_job_id=package.id if package is not None else None,
+        package_status=package.status if package is not None else report_run.package_status,
+        estimated_stage=package.current_stage if package is not None else report_run.package_status,
+        artifacts=[_to_report_artifact_response(artifact) for artifact in artifacts],
+        report_pdf=_to_report_artifact_response(report_pdf) if report_pdf is not None else None,
+        generated_at_utc=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 VERIFICATION_AUDIT_SCHEMA_VERSION = "verification_audit_v1"
@@ -1106,6 +1141,7 @@ async def publish_run(
     run_id: str,
     payload: RunPublishRequest,
     user: CurrentUser = Depends(require_roles(*RUN_PUBLISH_ROLES)),
+    queue: JobQueueService = Depends(get_job_queue_service),
     db: Session = Depends(get_db),
 ) -> RunPublishResponse:
     _ = user
@@ -1120,74 +1156,58 @@ async def publish_run(
         raise HTTPException(status_code=404, detail="Run not found for tenant/project.")
 
     run_attempt, run_execution_id = _get_latest_run_execution_context(db=db, report_run_id=report_run.id)
-
-    if report_run.status == "published":
-        try:
-            package_result = ensure_report_package(db=db, report_run=report_run)
-        except Exception as exc:
-            _record_publish_failure(
-                db=db,
-                report_run=report_run,
-                run_id=run_id,
-                run_attempt=run_attempt,
-                run_execution_id=run_execution_id,
-                published=True,
-                exc=exc,
-            )
-        db.commit()
-        report_pdf = next(
-            (artifact for artifact in package_result.artifacts if artifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE),
-            None,
-        )
-        return RunPublishResponse(
-            schema_version=PUBLISH_GATE_SCHEMA_VERSION,
+    current_package = get_report_package(db=db, report_run_id=report_run.id)
+    if report_run.status == "published" and current_package is not None and current_package.status == "completed":
+        return _build_run_publish_response(
+            db=db,
+            report_run=report_run,
             run_id=run_id,
             run_attempt=run_attempt,
             run_execution_id=run_execution_id,
-            report_run_status=report_run.status,
-            publish_ready=report_run.publish_ready,
             published=True,
-            blocked=False,
-            blockers=[],
-            package_job_id=package_result.package.id,
-            package_status=package_result.package.status,
-            estimated_stage=package_result.package.current_stage,
-            artifacts=[_to_report_artifact_response(artifact) for artifact in package_result.artifacts],
-            report_pdf=_to_report_artifact_response(report_pdf) if report_pdf is not None else None,
-            generated_at_utc=datetime.now(timezone.utc).isoformat(),
         )
 
-    blockers, run_attempt, run_execution_id = _evaluate_publish_gate(db=db, report_run=report_run)
-    if blockers:
-        detail_payload = {
-            "schema_version": PUBLISH_GATE_SCHEMA_VERSION,
-            "run_id": run_id,
-            "blocked": True,
-            "run_attempt": run_attempt,
-            "run_execution_id": run_execution_id,
-            "blockers": [item.model_dump() for item in blockers],
-            "report_pdf": None,
-            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        }
-        db.add(
-            AuditEvent(
-                tenant_id=report_run.tenant_id,
-                project_id=report_run.project_id,
-                report_run_id=report_run.id,
-                event_type="publish",
-                event_name="publish_blocked",
-                event_payload=detail_payload,
+    if report_run.status != "published":
+        blockers, run_attempt, run_execution_id = _evaluate_publish_gate(db=db, report_run=report_run)
+        if blockers:
+            detail_payload = {
+                "schema_version": PUBLISH_GATE_SCHEMA_VERSION,
+                "run_id": run_id,
+                "blocked": True,
+                "run_attempt": run_attempt,
+                "run_execution_id": run_execution_id,
+                "blockers": [item.model_dump() for item in blockers],
+                "report_pdf": None,
+                "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            }
+            db.add(
+                AuditEvent(
+                    tenant_id=report_run.tenant_id,
+                    project_id=report_run.project_id,
+                    report_run_id=report_run.id,
+                    event_type="publish",
+                    event_name="publish_blocked",
+                    event_payload=detail_payload,
+                )
             )
-        )
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=detail_payload,
-        )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail_payload,
+            )
 
     try:
-        package_result = ensure_report_package(db=db, report_run=report_run)
+        package = ensure_report_package_record(db=db, report_run=report_run)
+        db.commit()
+        await queue.enqueue_report_package(report_run.id, package_job_id=package.id)
     except Exception as exc:
+        package = get_report_package(db=db, report_run_id=report_run.id)
+        if package is not None:
+            package.status = "failed"
+            package.error_message = str(exc)
+            package.completed_at = datetime.now(timezone.utc)
+        report_run.package_status = "failed"
+        db.flush()
         _record_publish_failure(
             db=db,
             report_run=report_run,
@@ -1198,27 +1218,17 @@ async def publish_run(
             exc=exc,
         )
 
-    report_run.status = "published"
-    report_run.publish_ready = True
-    if report_run.completed_at is None:
-        report_run.completed_at = datetime.now(timezone.utc)
-    report_run.package_status = package_result.package.status
-
-    report_pdf = next(
-        (artifact for artifact in package_result.artifacts if artifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE),
-        None,
-    )
+    package = get_report_package(db=db, report_run_id=report_run.id)
     success_payload = {
         "schema_version": PUBLISH_GATE_SCHEMA_VERSION,
         "run_id": run_id,
         "blocked": False,
-        "published": True,
+        "published": False,
         "run_attempt": run_attempt,
         "run_execution_id": run_execution_id,
-        "package_job_id": package_result.package.id,
-        "package_status": package_result.package.status,
-        "artifacts": [_to_report_artifact_response(artifact).model_dump() for artifact in package_result.artifacts],
-        "report_pdf": _to_report_artifact_response(report_pdf).model_dump() if report_pdf is not None else None,
+        "package_job_id": package.id if package is not None else None,
+        "package_status": package.status if package is not None else report_run.package_status,
+        "estimated_stage": package.current_stage if package is not None else report_run.package_status,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     db.add(
@@ -1227,29 +1237,21 @@ async def publish_run(
             project_id=report_run.project_id,
             report_run_id=report_run.id,
             event_type="publish",
-            event_name="publish_completed",
+            event_name="publish_queued",
             event_payload=success_payload,
         )
     )
     db.commit()
     db.refresh(report_run)
 
-    return RunPublishResponse(
-        schema_version=PUBLISH_GATE_SCHEMA_VERSION,
+    queued_package = get_report_package(db=db, report_run_id=report_run.id)
+    return _build_run_publish_response(
+        db=db,
+        report_run=report_run,
         run_id=run_id,
         run_attempt=run_attempt,
         run_execution_id=run_execution_id,
-        report_run_status=report_run.status,
-        publish_ready=report_run.publish_ready,
-        published=True,
-        blocked=False,
-        blockers=[],
-        package_job_id=package_result.package.id,
-        package_status=package_result.package.status,
-        estimated_stage=package_result.package.current_stage,
-        artifacts=[_to_report_artifact_response(artifact) for artifact in package_result.artifacts],
-        report_pdf=_to_report_artifact_response(report_pdf) if report_pdf is not None else None,
-        generated_at_utc=datetime.now(timezone.utc).isoformat(),
+        published=bool(queued_package is not None and queued_package.status == "completed" and report_run.status == "published"),
     )
 
 

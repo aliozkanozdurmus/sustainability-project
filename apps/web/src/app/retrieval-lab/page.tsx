@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Loader2, Search } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";

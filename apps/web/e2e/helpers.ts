@@ -28,6 +28,16 @@ type WorkspaceContextResponse = {
   blueprint_version: string;
 };
 
+type RunListItem = {
+  run_id: string;
+  report_run_status: string;
+  report_pdf: { artifact_id: string } | null;
+};
+
+type RunListResponse = {
+  items: RunListItem[];
+};
+
 function resolveApiBaseUrl(): string {
   return process.env.PLAYWRIGHT_API_BASE_URL ?? "http://127.0.0.1:8000";
 }
@@ -85,6 +95,33 @@ function buildDeterministicRetrievalTasks(reportingYear: string) {
       top_k: 3,
     },
   ];
+}
+
+async function waitForPublishedRunViaApi(
+  request: APIRequestContext,
+  workspace: WorkspaceContext,
+  runId: string,
+): Promise<void> {
+  const apiBaseUrl = resolveApiBaseUrl();
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    const response = await request.get(`${apiBaseUrl}/runs`, {
+      headers: buildApiHeaders(workspace.tenantId),
+      params: {
+        tenant_id: workspace.tenantId,
+        project_id: workspace.projectId,
+        page: 1,
+        size: 50,
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+    const payload = (await response.json()) as RunListResponse;
+    const row = payload.items.find((item) => item.run_id === runId);
+    if (row?.report_run_status === "published" && row.report_pdf) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error(`Timed out waiting for run ${runId} to reach published state.`);
 }
 
 export async function primeWorkspaceContext(
@@ -219,5 +256,6 @@ export async function createPublishedRunViaApi(
     },
   });
   expect(publishResponse.ok()).toBeTruthy();
+  await waitForPublishedRunViaApi(request, workspace, runId);
   return runId;
 }

@@ -85,6 +85,63 @@ SECTION_GROUPS: dict[str, tuple[str, str]] = {
     "SOCIAL": ("Toplum İçin", "#0c4a6e"),
 }
 
+CONNECTOR_LABELS_TR = {
+    "sap_odata": "SAP / OData",
+    "logo_tiger_sql_view": "Logo Tiger / SQL View",
+    "netsis_rest": "Netsis / REST",
+}
+
+METRIC_NAME_OVERRIDES = {
+    "BOARD_OVERSIGHT_COVERAGE": "Yönetim Kurulu Gözetim Kapsamı",
+    "E_SCOPE2_TCO2E": "Scope 2 Emisyonu",
+    "E_SCOPE2_TCO2E_PREV": "Önceki Yıl Scope 2 Emisyonu",
+    "ENERGY_INTENSITY_REDUCTION": "Enerji Yoğunluğu İyileşmesi",
+    "HIGH_RISK_SUPPLIER_SCREENING": "Yüksek Riskli Tedarikçi Taraması",
+    "LTIFR": "Kayıp Günlü İş Kazası Frekansı",
+    "LTIFR_PREV": "Önceki Yıl Kayıp Günlü İş Kazası Frekansı",
+    "MATERIAL_TOPIC_COUNT": "Öncelikli Konu Sayısı",
+    "RENEWABLE_ELECTRICITY_SHARE": "Yenilenebilir Elektrik Payı",
+    "STAKEHOLDER_ENGAGEMENT_TOUCHPOINTS": "Paydaş Etkileşim Teması",
+    "SUPPLIER_COVERAGE": "Tedarikçi Kod Kapsamı",
+    "SUSTAINABILITY_COMMITTEE_MEETINGS": "Sürdürülebilirlik Komitesi Toplantıları",
+    "WORKFORCE_HEADCOUNT": "Çalışan Sayısı",
+}
+
+UNIT_LABEL_OVERRIDES = {
+    "employee": "kişi",
+    "count": "adet",
+    "rate": "oran",
+    "tCO2e": "tCO2e",
+    "%": "%",
+}
+
+EVIDENCE_LABELS = {
+    "company_profile": "Kurumsal profil girdileri",
+    "energy_report": "Enerji ve emisyon kanıt paketi",
+    "governance_pack": "Yönetişim ve risk kanıt paketi",
+    "materiality_summary": "Çifte önemlilik ve paydaş çıktıları",
+    "social_report": "Sosyal performans ve tedarik zinciri çıktıları",
+}
+
+SECTION_TOPIC_LINES = {
+    "CEO_MESSAGE": ["Yönetim perspektifi", "Raporlama yaklaşımı", "Kontrollü yayın ilkeleri"],
+    "COMPANY_PROFILE": ["Operasyon ölçeği", "Kurumsal konum", "Faaliyet ağı"],
+    "GOVERNANCE": ["Kurul gözetimi", "Komite ritmi", "Risk entegrasyonu"],
+    "DOUBLE_MATERIALITY": ["Etki önemliliği", "Finansal önemlilik", "Paydaş diyaloğu"],
+    "ENVIRONMENT": ["Emisyon takibi", "Enerji verimliliği", "Yenilenebilir payı"],
+    "SOCIAL": ["İSG performansı", "Çalışan ölçeği", "Tedarik zinciri kontrolleri"],
+}
+
+VISUAL_SCENE_LABELS = {
+    "cover": "Kurumsal sürdürülebilirlik kapağı",
+    "company": "Şirket profili ve operasyon ağı",
+    "governance": "Yönetişim ve karar mimarisi",
+    "materiality": "Çifte önemlilik matrisi",
+    "environment": "Enerji ve emisyon performansı",
+    "social": "İnsan, güvenlik ve tedarik zinciri",
+    "default": "Sürdürülebilirlik rapor görseli",
+}
+
 
 class ReportPackageGenerationError(RuntimeError):
     pass
@@ -206,6 +263,60 @@ def get_report_artifact_by_id(*, db: Session, report_run_id: str, artifact_id: s
     )
 
 
+def ensure_report_package_record(
+    *,
+    db: Session,
+    report_run: ReportRun,
+    reset_failed: bool = True,
+) -> ReportPackage:
+    package = get_report_package(db=db, report_run_id=report_run.id)
+    if package is None:
+        package = ReportPackage(
+            tenant_id=report_run.tenant_id,
+            project_id=report_run.project_id,
+            report_run_id=report_run.id,
+            status="queued",
+            current_stage="queued",
+            stage_history_json=[],
+            started_at=_utcnow(),
+        )
+        db.add(package)
+        db.flush()
+        _append_stage(package, "queued", "queued", "Report package queued for controlled publish.")
+        report_run.package_status = "queued"
+        if report_run.visual_generation_status == "failed":
+            report_run.visual_generation_status = "not_started"
+        db.flush()
+        return package
+
+    if package.status == "completed":
+        report_run.package_status = "completed"
+        db.flush()
+        return package
+
+    if package.status == "failed" and reset_failed:
+        package.status = "queued"
+        package.current_stage = "queued"
+        package.error_message = None
+        package.completed_at = None
+        package.started_at = _utcnow()
+        _append_stage(package, "queued", "queued", "Retry requested for report package.")
+        report_run.package_status = "queued"
+        if report_run.visual_generation_status == "failed":
+            report_run.visual_generation_status = "not_started"
+        db.flush()
+        return package
+
+    if package.status not in {"queued", "running"}:
+        package.status = "queued"
+        package.current_stage = "queued"
+        _append_stage(package, "queued", "queued", "Report package queued for controlled publish.")
+
+    report_run.package_status = package.status
+    db.flush()
+    return package
+
+
 def _load_weasyprint_html():
     try:
         from weasyprint import HTML
@@ -226,6 +337,72 @@ def _hex_color(value: str, fallback: str) -> colors.Color:
         return colors.HexColor(value)
     except Exception:
         return colors.HexColor(fallback)
+
+
+def _hex_to_rgb(value: str, fallback: str) -> tuple[int, int, int]:
+    normalized = value.strip().lstrip("#")
+    fallback_normalized = fallback.strip().lstrip("#")
+    if len(normalized) != 6:
+        normalized = fallback_normalized if len(fallback_normalized) == 6 else "f07f13"
+    return tuple(int(normalized[index:index + 2], 16) for index in (0, 2, 4))
+
+
+def _blend_rgb(start: tuple[int, int, int], end: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
+    clamped = max(0.0, min(1.0, factor))
+    return tuple(
+        int(round(start[index] + ((end[index] - start[index]) * clamped)))
+        for index in range(3)
+    )
+
+
+def _format_number_tr(value: float | int | None) -> str:
+    if value is None:
+        return "-"
+    number = float(value)
+    if abs(number - round(number)) < 1e-9:
+        return f"{int(round(number)):,}".replace(",", ".")
+
+    formatted = f"{number:,.2f}"
+    formatted = formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+    return formatted.rstrip("0").rstrip(",")
+
+
+def _translate_metric_name(metric_code: str, fallback_name: str) -> str:
+    return METRIC_NAME_OVERRIDES.get(metric_code, fallback_name)
+
+
+def _localized_unit(unit: str | None) -> str | None:
+    if unit is None:
+        return None
+    normalized = unit.strip()
+    if not normalized:
+        return None
+    return UNIT_LABEL_OVERRIDES.get(normalized, normalized)
+
+
+def _connector_label(source_system: str) -> str:
+    return CONNECTOR_LABELS_TR.get(source_system, source_system.replace("_", " ").title())
+
+
+def _evidence_label(code: str) -> str:
+    return EVIDENCE_LABELS.get(code, code.replace("_", " ").title())
+
+
+def _visual_scene_for_slot(visual_slot: str) -> str:
+    slot = visual_slot.lower()
+    if "cover" in slot:
+        return "cover"
+    if "profile" in slot:
+        return "company"
+    if "governance" in slot:
+        return "governance"
+    if "materiality" in slot or "matrix" in slot:
+        return "materiality"
+    if "environment" in slot or "scope2" in slot:
+        return "environment"
+    if "social" in slot or "supplier" in slot:
+        return "social"
+    return "default"
 
 
 def _build_monogram_svg(brand_name: str, brand: BrandKit) -> str:
@@ -286,19 +463,379 @@ def _call_image_generation(prompt: str) -> bytes | None:
     return None
 
 
-def _generate_fallback_visual(*, title: str, brand: BrandKit, accent_label: str) -> bytes:
+def _draw_gradient_background(
+    image: Image.Image,
+    *,
+    start: tuple[int, int, int],
+    mid: tuple[int, int, int],
+    end: tuple[int, int, int],
+) -> None:
+    draw = ImageDraw.Draw(image)
+    width, height = image.size
+    for y in range(height):
+        factor = y / max(1, height - 1)
+        if factor <= 0.58:
+            color = _blend_rgb(start, mid, factor / 0.58)
+        else:
+            color = _blend_rgb(mid, end, (factor - 0.58) / 0.42)
+        draw.line((0, y, width, y), fill=color)
+
+
+def _draw_grid_overlay(
+    draw: ImageDraw.ImageDraw,
+    *,
+    width: int,
+    height: int,
+    color: tuple[int, int, int, int],
+    spacing: int = 96,
+) -> None:
+    for x in range(0, width, spacing):
+        draw.line((x, 0, x, height), fill=color, width=1)
+    for y in range(0, height, spacing):
+        draw.line((0, y, width, y), fill=color, width=1)
+
+
+def _draw_metric_panels(
+    draw: ImageDraw.ImageDraw,
+    *,
+    width: int,
+    height: int,
+    primary: tuple[int, int, int, int],
+) -> None:
+    panel_specs = (
+        (int(width * 0.08), int(height * 0.10), int(width * 0.25), int(height * 0.13)),
+        (int(width * 0.08), int(height * 0.27), int(width * 0.19), int(height * 0.1)),
+        (int(width * 0.72), int(height * 0.14), int(width * 0.18), int(height * 0.11)),
+    )
+    for x, y, panel_width, panel_height in panel_specs:
+        draw.rounded_rectangle(
+            (x, y, x + panel_width, y + panel_height),
+            radius=28,
+            fill=(255, 255, 255, 54),
+            outline=(255, 255, 255, 88),
+            width=2,
+        )
+        draw.line(
+            (x + 28, y + panel_height - 34, x + panel_width - 28, y + panel_height - 34),
+            fill=primary,
+            width=6,
+        )
+
+
+def _draw_factory_scene(
+    draw: ImageDraw.ImageDraw,
+    *,
+    width: int,
+    height: int,
+    primary: tuple[int, int, int, int],
+    secondary: tuple[int, int, int, int],
+    accent: tuple[int, int, int, int],
+) -> None:
+    ground_y = int(height * 0.74)
+    draw.polygon(
+        [
+            (0, ground_y),
+            (int(width * 0.36), int(height * 0.61)),
+            (width, int(height * 0.66)),
+            (width, height),
+            (0, height),
+        ],
+        fill=(255, 255, 255, 34),
+    )
+    campus_specs = (
+        (int(width * 0.44), int(height * 0.52), int(width * 0.18), int(height * 0.18)),
+        (int(width * 0.63), int(height * 0.47), int(width * 0.2), int(height * 0.23)),
+        (int(width * 0.28), int(height * 0.58), int(width * 0.15), int(height * 0.14)),
+    )
+    for x, y, block_width, block_height in campus_specs:
+        draw.rounded_rectangle(
+            (x, y, x + block_width, y + block_height),
+            radius=26,
+            fill=(255, 255, 255, 198),
+            outline=(255, 255, 255, 225),
+            width=2,
+        )
+        draw.rectangle(
+            (x + 20, y + 18, x + block_width - 20, y + 36),
+            fill=primary,
+        )
+        for index in range(4):
+            inset_x = x + 28 + (index * 42)
+            draw.rectangle(
+                (inset_x, y + 58, inset_x + 24, y + 86),
+                fill=secondary,
+            )
+    draw.line(
+        (
+            int(width * 0.42),
+            int(height * 0.72),
+            int(width * 0.92),
+            int(height * 0.72),
+        ),
+        fill=accent,
+        width=8,
+    )
+    for offset in (0.48, 0.61, 0.76):
+        x = int(width * offset)
+        draw.line((x, int(height * 0.44), x, int(height * 0.28)), fill=secondary, width=10)
+        draw.ellipse((x - 18, int(height * 0.24), x + 18, int(height * 0.28)), fill=primary)
+
+
+def _draw_governance_scene(
+    draw: ImageDraw.ImageDraw,
+    *,
+    width: int,
+    height: int,
+    primary: tuple[int, int, int, int],
+    secondary: tuple[int, int, int, int],
+    accent: tuple[int, int, int, int],
+) -> None:
+    card_positions = (
+        (int(width * 0.14), int(height * 0.46), int(width * 0.22), int(height * 0.16)),
+        (int(width * 0.42), int(height * 0.34), int(width * 0.22), int(height * 0.16)),
+        (int(width * 0.70), int(height * 0.50), int(width * 0.18), int(height * 0.14)),
+    )
+    nodes: list[tuple[int, int]] = []
+    for x, y, card_width, card_height in card_positions:
+        draw.rounded_rectangle(
+            (x, y, x + card_width, y + card_height),
+            radius=30,
+            fill=(255, 255, 255, 190),
+            outline=(255, 255, 255, 235),
+            width=2,
+        )
+        draw.rectangle((x + 22, y + 18, x + card_width - 22, y + 34), fill=primary)
+        nodes.append((x + (card_width // 2), y + (card_height // 2)))
+    if len(nodes) >= 3:
+        draw.line((*nodes[0], *nodes[1]), fill=accent, width=8)
+        draw.line((*nodes[1], *nodes[2]), fill=secondary, width=8)
+        for x, y in nodes:
+            draw.ellipse((x - 16, y - 16, x + 16, y + 16), fill=secondary)
+            draw.ellipse((x - 8, y - 8, x + 8, y + 8), fill=(255, 255, 255, 220))
+
+
+def _draw_materiality_scene(
+    draw: ImageDraw.ImageDraw,
+    *,
+    width: int,
+    height: int,
+    primary: tuple[int, int, int, int],
+    secondary: tuple[int, int, int, int],
+    accent: tuple[int, int, int, int],
+) -> None:
+    origin_x = int(width * 0.2)
+    origin_y = int(height * 0.78)
+    axis_width = int(width * 0.54)
+    axis_height = int(height * 0.42)
+    draw.rounded_rectangle(
+        (
+            int(width * 0.56),
+            int(height * 0.18),
+            int(width * 0.88),
+            int(height * 0.42),
+        ),
+        radius=34,
+        fill=(255, 255, 255, 72),
+        outline=(255, 255, 255, 138),
+        width=2,
+    )
+    draw.line((origin_x, origin_y, origin_x + axis_width, origin_y), fill=(255, 255, 255, 210), width=4)
+    draw.line((origin_x, origin_y, origin_x, origin_y - axis_height), fill=(255, 255, 255, 210), width=4)
+    draw.rectangle(
+        (
+            origin_x + int(axis_width * 0.45),
+            origin_y - int(axis_height * 0.55),
+            origin_x + axis_width - 20,
+            origin_y - 18,
+        ),
+        fill=(255, 255, 255, 42),
+    )
+    points = (
+        (0.38, 0.28, primary),
+        (0.55, 0.36, accent),
+        (0.69, 0.22, secondary),
+        (0.78, 0.42, primary),
+        (0.62, 0.58, accent),
+    )
+    for x_factor, y_factor, fill in points:
+        x = origin_x + int(axis_width * x_factor)
+        y = origin_y - int(axis_height * y_factor)
+        draw.ellipse((x - 18, y - 18, x + 18, y + 18), fill=fill)
+        draw.ellipse((x - 7, y - 7, x + 7, y + 7), fill=(255, 255, 255, 220))
+
+
+def _draw_environment_scene(
+    draw: ImageDraw.ImageDraw,
+    *,
+    width: int,
+    height: int,
+    primary: tuple[int, int, int, int],
+    secondary: tuple[int, int, int, int],
+    accent: tuple[int, int, int, int],
+) -> None:
+    ground_y = int(height * 0.76)
+    draw.polygon(
+        [(0, ground_y), (int(width * 0.24), int(height * 0.64)), (width, int(height * 0.7)), (width, height), (0, height)],
+        fill=(255, 255, 255, 34),
+    )
+    for index, x in enumerate((0.58, 0.72, 0.84)):
+        tower_x = int(width * x)
+        mast_height = int(height * (0.24 + (index * 0.04)))
+        top_y = ground_y - mast_height
+        draw.line((tower_x, ground_y, tower_x, top_y), fill=(255, 255, 255, 220), width=8)
+        draw.line((tower_x, top_y, tower_x - 38, top_y + 12), fill=accent, width=6)
+        draw.line((tower_x, top_y, tower_x + 32, top_y - 28), fill=accent, width=6)
+        draw.line((tower_x, top_y, tower_x + 14, top_y + 44), fill=accent, width=6)
+    panel_y = int(height * 0.66)
+    for index in range(4):
+        left = int(width * 0.18) + (index * 110)
+        draw.polygon(
+            [
+                (left, panel_y + 70),
+                (left + 84, panel_y + 52),
+                (left + 126, panel_y + 108),
+                (left + 42, panel_y + 128),
+            ],
+            fill=secondary,
+        )
+    draw.ellipse(
+        (
+            int(width * 0.08),
+            int(height * 0.14),
+            int(width * 0.36),
+            int(height * 0.56),
+        ),
+        fill=(accent[0], accent[1], accent[2], 90),
+    )
+    draw.arc(
+        (
+            int(width * 0.04),
+            int(height * 0.08),
+            int(width * 0.42),
+            int(height * 0.72),
+        ),
+        start=300,
+        end=82,
+        fill=(255, 255, 255, 210),
+        width=6,
+    )
+
+
+def _draw_social_scene(
+    draw: ImageDraw.ImageDraw,
+    *,
+    width: int,
+    height: int,
+    primary: tuple[int, int, int, int],
+    secondary: tuple[int, int, int, int],
+    accent: tuple[int, int, int, int],
+) -> None:
+    person_positions = (
+        (int(width * 0.58), int(height * 0.38)),
+        (int(width * 0.72), int(height * 0.46)),
+        (int(width * 0.84), int(height * 0.34)),
+    )
+    for x, y in person_positions:
+        draw.ellipse((x - 34, y - 78, x + 34, y - 10), fill=(255, 255, 255, 216))
+        draw.rounded_rectangle((x - 54, y, x + 54, y + 136), radius=34, fill=secondary)
+        draw.rounded_rectangle((x - 72, y + 30, x + 72, y + 66), radius=18, fill=accent)
+    draw.line((*person_positions[0], *person_positions[1]), fill=primary, width=8)
+    draw.line((*person_positions[1], *person_positions[2]), fill=primary, width=8)
+    for x, y in ((int(width * 0.2), int(height * 0.58)), (int(width * 0.34), int(height * 0.48))):
+        draw.rounded_rectangle(
+            (x, y, x + 210, y + 108),
+            radius=28,
+            fill=(255, 255, 255, 186),
+            outline=(255, 255, 255, 230),
+            width=2,
+        )
+        draw.rectangle((x + 22, y + 20, x + 154, y + 36), fill=accent)
+        draw.rectangle((x + 22, y + 54, x + 182, y + 64), fill=primary)
+        draw.rectangle((x + 22, y + 74, x + 126, y + 84), fill=secondary)
+
+
+def _draw_default_scene(
+    draw: ImageDraw.ImageDraw,
+    *,
+    width: int,
+    height: int,
+    primary: tuple[int, int, int, int],
+    secondary: tuple[int, int, int, int],
+    accent: tuple[int, int, int, int],
+) -> None:
+    _draw_factory_scene(draw, width=width, height=height, primary=primary, secondary=secondary, accent=accent)
+    draw.ellipse((int(width * 0.7), int(height * 0.14), int(width * 0.94), int(height * 0.38)), fill=(accent[0], accent[1], accent[2], 108))
+    draw.arc((int(width * 0.62), int(height * 0.08), int(width * 0.96), int(height * 0.42)), start=180, end=360, fill=secondary, width=7)
+
+
+def _generate_fallback_visual(*, title: str, brand: BrandKit, accent_label: str, visual_slot: str) -> bytes:
+    del title, accent_label
     width = 1600
     height = 1000
-    image = Image.new("RGB", (width, height), brand.primary_color)
+    scene = _visual_scene_for_slot(visual_slot)
+
+    primary_rgb = _hex_to_rgb(brand.primary_color, "#f07f13")
+    secondary_rgb = _hex_to_rgb(brand.secondary_color, "#0c4a6e")
+    accent_rgb = _hex_to_rgb(brand.accent_color, "#7ab648")
+
+    scene_backgrounds = {
+        "cover": (_blend_rgb(primary_rgb, (255, 190, 120), 0.22), _blend_rgb(primary_rgb, secondary_rgb, 0.26), _blend_rgb(secondary_rgb, (18, 35, 55), 0.48)),
+        "company": (_blend_rgb((255, 255, 255), secondary_rgb, 0.14), _blend_rgb(secondary_rgb, primary_rgb, 0.18), _blend_rgb(secondary_rgb, (10, 21, 34), 0.55)),
+        "governance": (_blend_rgb(secondary_rgb, (255, 255, 255), 0.12), _blend_rgb(secondary_rgb, primary_rgb, 0.14), _blend_rgb((18, 34, 51), secondary_rgb, 0.22)),
+        "materiality": (_blend_rgb(accent_rgb, (255, 255, 255), 0.18), _blend_rgb(secondary_rgb, accent_rgb, 0.24), _blend_rgb(secondary_rgb, (17, 32, 48), 0.46)),
+        "environment": (_blend_rgb(accent_rgb, (255, 255, 255), 0.2), _blend_rgb(secondary_rgb, accent_rgb, 0.18), _blend_rgb(secondary_rgb, (15, 32, 46), 0.44)),
+        "social": (_blend_rgb(primary_rgb, (255, 255, 255), 0.18), _blend_rgb(secondary_rgb, primary_rgb, 0.16), _blend_rgb(secondary_rgb, (16, 28, 42), 0.45)),
+        "default": (_blend_rgb(primary_rgb, (255, 255, 255), 0.16), _blend_rgb(primary_rgb, secondary_rgb, 0.22), _blend_rgb(secondary_rgb, (15, 27, 39), 0.42)),
+    }
+    start, mid, end = scene_backgrounds.get(scene, scene_backgrounds["default"])
+
+    base = Image.new("RGB", (width, height), start)
+    _draw_gradient_background(base, start=start, mid=mid, end=end)
     overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    draw.ellipse((840, 120, 1500, 820), fill=_hex_to_rgba(brand.secondary_color, 144))
-    draw.rounded_rectangle((140, 240, 980, 860), radius=120, fill=_hex_to_rgba("#ffffff", 48))
-    draw.ellipse((160, 680, 520, 1010), fill=_hex_to_rgba(brand.accent_color, 196))
-    draw.rectangle((0, 0, 520, height), fill=_hex_to_rgba("#ffffff", 22))
-    draw.text((140, 124), title, fill=(255, 255, 255, 255))
-    draw.text((145, 184), accent_label, fill=(255, 255, 255, 236))
-    composite = Image.alpha_composite(image.convert("RGBA"), overlay.filter(ImageFilter.GaussianBlur(radius=2)))
+
+    draw.ellipse((int(width * 0.62), int(height * 0.06), int(width * 0.96), int(height * 0.44)), fill=(*primary_rgb, 84))
+    draw.ellipse((int(width * 0.02), int(height * 0.44), int(width * 0.34), int(height * 0.9)), fill=(*accent_rgb, 74))
+    draw.rounded_rectangle((int(width * 0.06), int(height * 0.12), int(width * 0.42), int(height * 0.34)), radius=64, fill=(255, 255, 255, 34))
+    draw.rounded_rectangle((int(width * 0.12), int(height * 0.18), int(width * 0.26), int(height * 0.26)), radius=18, fill=(*accent_rgb, 178))
+    _draw_grid_overlay(draw, width=width, height=height, color=(255, 255, 255, 24))
+    _draw_metric_panels(draw, width=width, height=height, primary=(*accent_rgb, 226))
+
+    scene_kwargs = {
+        "draw": draw,
+        "width": width,
+        "height": height,
+        "primary": (*primary_rgb, 222),
+        "secondary": (*secondary_rgb, 218),
+        "accent": (*accent_rgb, 226),
+    }
+    if scene == "cover" or scene == "company":
+        _draw_factory_scene(**scene_kwargs)
+    elif scene == "governance":
+        _draw_governance_scene(**scene_kwargs)
+    elif scene == "materiality":
+        _draw_materiality_scene(**scene_kwargs)
+    elif scene == "environment":
+        _draw_environment_scene(**scene_kwargs)
+    elif scene == "social":
+        _draw_social_scene(**scene_kwargs)
+    else:
+        _draw_default_scene(**scene_kwargs)
+
+    draw.arc(
+        (int(width * -0.06), int(height * 0.48), int(width * 0.54), int(height * 1.02)),
+        start=300,
+        end=38,
+        fill=(255, 255, 255, 126),
+        width=9,
+    )
+    draw.line(
+        (int(width * 0.04), int(height * 0.9), int(width * 0.94), int(height * 0.58)),
+        fill=(255, 255, 255, 56),
+        width=4,
+    )
+
+    composite = Image.alpha_composite(base.convert("RGBA"), overlay.filter(ImageFilter.GaussianBlur(radius=3)))
     buffer = BytesIO()
     composite.convert("RGB").save(buffer, format="PNG")
     return buffer.getvalue()
@@ -369,13 +906,14 @@ def _upload_visual_image_asset(
     prompt_text: str,
 ) -> tuple[bytes, str]:
     payload = _call_image_generation(prompt_text)
-    source_type = "azure_openai_image" if payload is not None else "generated_placeholder"
+    source_type = "azure_openai_image" if payload is not None else "deterministic_editorial_fallback"
     decorative_ai_generated = payload is not None
     if payload is None:
         payload = _generate_fallback_visual(
             title=title,
             brand=brand,
             accent_label=visual_slot.replace("_", " ").upper(),
+            visual_slot=visual_slot,
         )
     checksum = f"sha256:{sha256(payload).hexdigest()}"
     storage_uri = blob_storage.upload_bytes(
@@ -667,7 +1205,15 @@ def _resolve_section_domain(section_code: str) -> str:
 
 def _metric_display_value(fact: CanonicalFact) -> str:
     if fact.value_numeric is not None:
-        return f"{fact.value_numeric:g} {fact.unit or ''}".strip()
+        unit = _localized_unit(fact.unit)
+        value = _format_number_tr(fact.value_numeric)
+        if unit == "%":
+            return f"%{value}"
+        if unit == "oran":
+            return value
+        if unit:
+            return f"{value} {unit}"
+        return value
     return fact.value_text or "-"
 
 
@@ -683,7 +1229,27 @@ def _percentage_change(current: CanonicalFact | None, previous: CanonicalFact | 
         return None
     delta = ((current.value_numeric - previous.value_numeric) / previous.value_numeric) * 100
     direction = "azalış" if delta < 0 else "artış"
-    return f"%{abs(delta):.1f} {direction}"
+    return f"%{_format_number_tr(abs(delta))} {direction}"
+
+
+def _section_source_labels(facts: list[CanonicalFact]) -> list[str]:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for fact in facts:
+        label = _connector_label(fact.source_system)
+        if label in seen:
+            continue
+        seen.add(label)
+        labels.append(label)
+    return labels
+
+
+def _latest_freshness_label(facts: list[CanonicalFact]) -> str | None:
+    freshness_values = [fact.freshness_at for fact in facts if fact.freshness_at is not None]
+    if not freshness_values:
+        return None
+    latest = max(freshness_values)
+    return latest.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
 
 
 def _build_section_copy(
@@ -695,43 +1261,63 @@ def _build_section_copy(
     metric_bucket: dict[str, list[CanonicalFact]],
     claims: list[str],
 ) -> tuple[str, list[str]]:
+    source_labels = _section_source_labels(facts)
+    source_note = ", ".join(source_labels) if source_labels else "seçili ERP kaynakları"
+
     if section_code == "CEO_MESSAGE":
-        highlights = [item for item in claims[:2] if item]
-        if company_profile.sustainability_approach:
-            highlights.append(company_profile.sustainability_approach)
-        if not highlights:
-            highlights = [
-                "Kurumsal sürdürülebilirlik yaklaşımı veri bütünlüğü ve denetlenebilirlik üzerine kuruludur.",
-            ]
+        highlights = [
+            "ERP, kanıt havuzu ve controlled publish hattı tek rapor paketi içinde birleştirilir.",
+            "Sayısal ifadeler yalnızca hesaplama ekleri ile, metinsel ifadeler ise atıf dizini ile yayınlanır.",
+            company_profile.sustainability_approach
+            or "Kurumsal sürdürülebilirlik yaklaşımı veri bütünlüğü ve denetlenebilirlik üzerine kuruludur.",
+        ]
         return (
             company_profile.ceo_message
             or (
-                f"{company_profile.legal_name}, sürdürülebilirlik gündemini ERP verileri, kanıt havuzu ve "
-                "kontrollü yayın akışı ile kurumsal karar alma süreçlerine bağlamaktadır."
+                f"{company_profile.legal_name}, sürdürülebilirlik gündemini {source_note} üzerinden beslenen "
+                "ölçülebilir KPI setleri, kanıt havuzu ve kontrollü yayın akışı ile kurumsal karar alma "
+                "süreçlerine bağlamaktadır."
             ),
             highlights[:3],
         )
 
     if section_code == "COMPANY_PROFILE":
-        facts_text = ", ".join(_metric_display_value(item) for item in facts[:3])
+        workforce = _find_metric(metric_bucket, "WORKFORCE_HEADCOUNT")
+        supplier = _find_metric(metric_bucket, "SUPPLIER_COVERAGE")
+        facts_text = ", ".join(_metric_display_value(item) for item in facts[:2])
         return (
             f"{company_profile.legal_name}; {company_profile.sector or 'çok sektörlü üretim'} odağında, "
             f"{company_profile.headquarters or 'Türkiye'} merkezli operasyonlarını veriyle izlenen bir "
             f"sürdürülebilirlik dönüşüm programı ile yönetmektedir. Ölçek göstergeleri: {facts_text}.",
-            claims[:3]
-            or [
-                "Kurumsal profil bölümü şirket tanımı, ölçek ve operasyonel ayak izi ile desteklenir.",
+            [
+                f"Çalışan ölçeği {_metric_display_value(workforce)} olarak izlenmektedir."
+                if workforce
+                else "",
+                f"Tedarikçi davranış kodu kapsamı {_metric_display_value(supplier)} seviyesindedir."
+                if supplier
+                else "",
+                f"Kurumsal profil ve operasyonel ayak izi {source_note} ile desteklenir.",
             ],
         )
 
     if section_code == "GOVERNANCE":
+        board = _find_metric(metric_bucket, "BOARD_OVERSIGHT_COVERAGE")
+        meetings = _find_metric(metric_bucket, "SUSTAINABILITY_COMMITTEE_MEETINGS")
         return (
             "Yönetişim yapısı, sürdürülebilirlik komitesi, yönetim kurulu gözetimi ve karar mekanizmalarının "
             "izlenebilirliğini güçlendirecek şekilde yapılandırılmıştır.",
-            claims[:3]
-            or [
-                "Yönetim kurulu gözetimi ve komite ritmi rapor kapsamına dahil edilmiştir.",
-                "Politika ve risk izleme adımları sadece doğrulanmış kanıtlardan türetilir.",
+            [
+                (
+                    f"Yönetim kurulu gözetim kapsamı {_metric_display_value(board)} seviyesinde sürdürülmüştür."
+                    if board
+                    else ""
+                ),
+                (
+                    f"Sürdürülebilirlik komitesi {_metric_display_value(meetings)} frekansta toplanmıştır."
+                    if meetings
+                    else ""
+                ),
+                "Politika, risk ve onay akışı yalnızca doğrulanmış kanıtlardan türetilir.",
             ],
         )
 
@@ -747,9 +1333,10 @@ def _build_section_copy(
         return (
             f"Çifte önemlilik görünümü, finansal etki ve dış paydaş etkisini tek yüzeyde birleştirir; "
             f"bu sürümde {summary_suffix} ile desteklenmiştir.",
-            claims[:3]
-            or [
-                "Önceliklendirme yalnızca normalize edilen fact havuzu ve onaylı kanıtlar ile kurulur.",
+            [
+                f"Önceliklendirme çıktıları {source_note} üzerinden normalleştirilen fact havuzundan beslenir.",
+                "Matris, etki önemliliği ile finansal önemliliği aynı karar yüzeyinde birleştirir.",
+                "Paydaş etkileşimleri ve konu sayısı appendix ve coverage çıktıları ile korunur.",
             ],
         )
 
@@ -770,9 +1357,14 @@ def _build_section_copy(
         return (
             f"Çevresel performans bölümü; emisyon, enerji ve verimlilik metriklerini Türkçe editoryal akışta "
             f"özetler. Bu çevrimde {joined} öne çıkmaktadır.",
-            claims[:3]
-            or [
-                "Tüm çevresel anlatı, ERP kökenli fact paketleri ve PASS claim havuzu ile sınırlandırılmıştır.",
+            [
+                f"Çevresel KPI yüzeyi {source_note} ile güncellenmiştir.",
+                "Tüm çevresel anlatı yalnızca taze KPI snapshot'ları ve hesaplama artefaktları ile desteklenir.",
+                (
+                    f"Scope 2 emisyon trendinde {yoy} kaydedilmiştir."
+                    if yoy
+                    else "Karşılaştırmalı emisyon trendi mevcut veri dönemi ile korunmuştur."
+                ),
             ],
         )
 
@@ -793,9 +1385,14 @@ def _build_section_copy(
         return (
             f"Sosyal performans anlatısı; iş sağlığı güvenliği, çalışan ölçeği ve tedarik zinciri denetimini "
             f"tek bir kurumsal yüzeyde birleştirir. Bu çevrimde {joined}.",
-            claims[:3]
-            or [
-                "İnsan ve tedarik zinciri göstergeleri yalnızca taze ERP snapshot'ları ile beslenir.",
+            [
+                f"İnsan ve tedarik zinciri göstergeleri {source_note} ile güncellenmiştir.",
+                (
+                    f"İSG frekansında {yoy} sağlanmıştır."
+                    if yoy
+                    else "İSG frekansı ve çalışan göstergeleri rapor dönemine ait snapshot ile izlenmiştir."
+                ),
+                "Sosyal performans, yüksek riskli tedarikçi taramaları ve çalışan güvenliği çıktılarıyla birlikte ele alınır.",
             ],
         )
 
@@ -805,9 +1402,10 @@ def _build_section_copy(
         f"kanıtla desteklenen KPI setleriyle tutarlı bir performans hikayesi ortaya koymuştur. "
         f"Öne çıkan metrikler: {fact_summary or 'hazır veri yüzeyi'}."
     )
-    highlights = claims[:3] if claims else [
-        "Bu bölüm yalnızca normalize ERP fact havuzu ve PASS doğrulanmış claim setinden beslenir.",
+    highlights = [
+        f"Bu bölüm {source_note} üzerinden gelen normalize edilmiş fact havuzu ile beslenir.",
         "Kanıtsız veya hesaplama refsiz ifade otomatik olarak dışarıda bırakılır.",
+        f"Doğrulanmış iddia adedi: {len(claims)}." if claims else "Doğrulanmış iddia seti eklerde korunur.",
     ]
     return summary, highlights
 
@@ -825,12 +1423,14 @@ def _build_section_payload(
     purpose = str(section_definition.get("purpose", "")).strip() or title
     required_metrics = [str(item).strip().upper() for item in section_definition.get("required_metrics", []) if str(item).strip()]
     section_facts = [metric_bucket[metric][0] for metric in required_metrics if metric_bucket.get(metric)]
+    section_claims = claim_domains.get(_resolve_section_domain(section_code), [])
     section_metrics = [
         {
             "metric_code": fact.metric_code,
-            "metric_name": fact.metric_name,
+            "metric_name": _translate_metric_name(fact.metric_code, fact.metric_name),
             "period_key": fact.period_key,
             "display_value": _metric_display_value(fact),
+            "source_system": fact.source_system,
         }
         for fact in section_facts
     ]
@@ -858,7 +1458,7 @@ def _build_section_payload(
         title=title,
         facts=section_facts,
         metric_bucket=metric_bucket,
-        claims=claim_domains.get(_resolve_section_domain(section_code), []),
+        claims=section_claims,
     )
     chart_svg = ""
     if section_code == "DOUBLE_MATERIALITY":
@@ -874,15 +1474,29 @@ def _build_section_payload(
         "summary": summary,
         "highlights": highlights,
         "metrics": section_metrics,
-        "claims": claim_domains.get(_resolve_section_domain(section_code), []),
+        "claims": section_claims,
         "visual_slots": visual_slots,
         "primary_visual_slot": primary_visual_slot,
         "chart_svg": chart_svg,
         "chart_values": chart_values,
+        "required_evidence": [
+            str(item)
+            for item in section_definition.get("required_evidence", [])
+            if str(item).strip()
+        ],
+        "allowed_claim_types": [
+            str(item)
+            for item in section_definition.get("allowed_claim_types", [])
+            if str(item).strip()
+        ],
         "appendix_refs": [str(item) for item in section_definition.get("appendix_refs", []) if str(item).strip()],
         "required_metrics": required_metrics,
         "group_title": group_title,
         "group_color": group_color,
+        "source_labels": _section_source_labels(section_facts),
+        "freshness_label": _latest_freshness_label(section_facts),
+        "claim_count": len(section_claims),
+        "section_topics": SECTION_TOPIC_LINES.get(section_code, [title]),
     }
 
 
@@ -897,19 +1511,335 @@ def _build_toc_cards(section_payloads: list[dict[str, Any]], appendix_start_page
                 "title": group_title,
                 "accent_color": section["group_color"],
                 "lines": [],
+                "summary_parts": [],
             },
         )
-        card["lines"].append({"label": section["title"], "page_hint": str(page_pointer)})
+        card["lines"].append(
+            {
+                "label": section["title"],
+                "page_hint": str(page_pointer),
+                "page_range": f"{page_pointer:02d}-{page_pointer + 1:02d}",
+            }
+        )
+        summary_part = " / ".join(section.get("section_topics", [])[:2])
+        if summary_part:
+            card["summary_parts"].append(summary_part)
         page_pointer += 2
-    grouped.setdefault(
+
+    appendix_card = grouped.setdefault(
         "Ekler",
         {
             "title": "Ekler",
             "accent_color": "#f07f13",
             "lines": [],
+            "summary_parts": ["Atıf dizini, hesaplama ekleri ve varsayım kaydı"],
         },
-    )["lines"].append({"label": "Atıf ve hesaplama ekleri", "page_hint": str(appendix_start_page)})
-    return list(grouped.values())
+    )
+    appendix_card["lines"].append(
+        {
+            "label": "Atıf ve hesaplama ekleri",
+            "page_hint": str(appendix_start_page),
+            "page_range": f"{appendix_start_page:02d}+",
+        }
+    )
+
+    cards = list(grouped.values())
+    for card in cards:
+        card["summary"] = " • ".join(card.pop("summary_parts", [])[:2])
+    return cards
+
+
+def _appendix_label(reference: str) -> str:
+    labels = {
+        "assumption_register": "Varsayım kaydı",
+        "citation_index": "Atıf dizini",
+        "calculation_appendix": "Hesaplama ekleri",
+        "coverage_matrix": "Kapsama matrisi",
+    }
+    return labels.get(reference, reference.replace("_", " ").title())
+
+
+def _chunk_records(items: list[dict[str, Any]], size: int) -> list[list[dict[str, Any]]]:
+    if not items:
+        return [[]]
+    return [items[index:index + size] for index in range(0, len(items), size)]
+
+
+def _build_cover_metrics(
+    *,
+    company_profile: CompanyProfile,
+    section_payloads: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    metrics: list[dict[str, str]] = []
+    if company_profile.employee_count:
+        metrics.append({"label": "Çalışan Ölçeği", "value": _format_number_tr(company_profile.employee_count)})
+    if company_profile.sector:
+        metrics.append({"label": "Sektör", "value": company_profile.sector})
+    if company_profile.headquarters:
+        metrics.append({"label": "Merkez", "value": company_profile.headquarters})
+
+    seen_codes: set[str] = set()
+    for section in section_payloads:
+        for metric in section.get("metrics", []):
+            metric_code = str(metric.get("metric_code", "")).strip()
+            if not metric_code or metric_code in seen_codes:
+                continue
+            seen_codes.add(metric_code)
+            metrics.append(
+                {
+                    "label": str(metric.get("metric_name", metric_code)),
+                    "value": str(metric.get("display_value", "-")),
+                }
+            )
+            if len(metrics) >= 6:
+                return metrics[:6]
+    return metrics[:6]
+
+
+def _build_story_paragraphs(
+    *,
+    section: dict[str, Any],
+    company_profile: CompanyProfile,
+) -> list[str]:
+    section_code = str(section.get("section_code", "")).strip().upper()
+    metrics_by_code = {
+        str(item.get("metric_code", "")).strip().upper(): item
+        for item in section.get("metrics", [])
+        if str(item.get("metric_code", "")).strip()
+    }
+    source_note = ", ".join(section.get("source_labels", [])) or "seçili ERP kaynakları"
+    freshness_note = str(section.get("freshness_label", "")).strip()
+
+    def metric_value(metric_code: str) -> str | None:
+        item = metrics_by_code.get(metric_code)
+        if item is None:
+            return None
+        value = str(item.get("display_value", "")).strip()
+        return value or None
+
+    paragraphs: list[str] = [str(section.get("summary", "")).strip()]
+    if section_code == "CEO_MESSAGE":
+        if company_profile.ceo_message:
+            paragraphs = [company_profile.ceo_message.strip()]
+        if company_profile.sustainability_approach:
+            paragraphs.append(company_profile.sustainability_approach.strip())
+        paragraphs.append(
+            f"Bu yayın akışı; {source_note} hatlarından normalleştirilen KPI snapshot'larını, kanıt havuzunu ve "
+            "controlled publish zincirini aynı paket içinde birleştirir."
+        )
+        paragraphs.append(
+            "Bu nedenle sayısal iddialar hesaplama eklerine, metinsel dayanaklar ise atıf dizinine bağlanarak yayınlanır."
+        )
+    elif section_code == "COMPANY_PROFILE":
+        workforce = metric_value("WORKFORCE_HEADCOUNT")
+        supplier = metric_value("SUPPLIER_COVERAGE")
+        paragraphs.append(
+            f"{company_profile.legal_name}, {company_profile.sector or 'kurumsal üretim'} odağında "
+            f"{company_profile.headquarters or 'Türkiye'} merkezli operasyonlarını veriyle yönetilen bir yapı içinde sürdürmektedir."
+        )
+        if workforce or supplier:
+            paragraphs.append(
+                f"Raporlama döneminde çalışan ölçeği {workforce or '-'}; tedarikçi kod kapsamı ise {supplier or '-'} olarak izlenmiştir."
+            )
+        paragraphs.append(
+            f"Kurumsal profil yüzeyi, marka kimliği ile operasyonel ölçek bilgisini {source_note} üzerinden beslenen fact katmanıyla bir araya getirir."
+        )
+    elif section_code == "GOVERNANCE":
+        board = metric_value("BOARD_OVERSIGHT_COVERAGE")
+        meetings = metric_value("SUSTAINABILITY_COMMITTEE_MEETINGS")
+        paragraphs.append(
+            f"Yönetim ve risk mimarisi, kurul gözetimi {board or '-'} ve komite ritmi {meetings or '-'} seviyesinde izlenebilir olacak şekilde tasarlanmıştır."
+        )
+        paragraphs.append(
+            "Risk, strateji ve sermaye tahsisi kararları sürdürülebilirlik başlıklarıyla ilişkilendirilmiş; publish öncesi kontrol zinciri korunmuştur."
+        )
+        paragraphs.append(
+            "Bu bölümde yalnızca doğrulanmış yönetişim iddiaları ve kanıt paketleri editoryal akışa alınır."
+        )
+    elif section_code == "DOUBLE_MATERIALITY":
+        topic_count = metric_value("MATERIAL_TOPIC_COUNT")
+        touchpoints = metric_value("STAKEHOLDER_ENGAGEMENT_TOUCHPOINTS")
+        paragraphs.append(
+            f"Çifte önemlilik görünümü, {topic_count or '-'} öncelikli konu ve {touchpoints or '-'} paydaş etkileşim teması üzerinden şekillenen karar setini tek yüzeyde toplar."
+        )
+        paragraphs.append(
+            "Matris; dış etki ile finansal önemi aynı koordinat sisteminde okuyarak yönetişim, çevre ve sosyal programlar arasındaki öncelik gerilimini görünür kılar."
+        )
+        paragraphs.append(
+            f"Önceliklendirme girdileri {source_note} ve onaylı kanıt paketi ile sınırlı tutulmuştur."
+        )
+    elif section_code == "ENVIRONMENT":
+        scope2 = metric_value("E_SCOPE2_TCO2E")
+        renewable = metric_value("RENEWABLE_ELECTRICITY_SHARE")
+        intensity = metric_value("ENERGY_INTENSITY_REDUCTION")
+        paragraphs.append(
+            f"Çevresel performans omurgası, scope 2 emisyonu {scope2 or '-'} düzeyi ile yenilenebilir elektrik payı {renewable or '-'} çıktısını aynı stratejik hikâyede birleştirir."
+        )
+        paragraphs.append(
+            f"Enerji yoğunluğu iyileşmesi {intensity or '-'} olarak izlenmiş; anlatı yalnızca taze snapshot ve hesaplama artefaktları ile beslenmiştir."
+        )
+        paragraphs.append(
+            f"Veri tazeliği {freshness_note or 'mevcut dönem'} itibarıyla korunmuş; çevresel bölüm {source_note} kaynaklarıyla güncellenmiştir."
+        )
+    elif section_code == "SOCIAL":
+        workforce = metric_value("WORKFORCE_HEADCOUNT")
+        ltifr = metric_value("LTIFR")
+        supplier = metric_value("SUPPLIER_COVERAGE")
+        screening = metric_value("HIGH_RISK_SUPPLIER_SCREENING")
+        paragraphs.append(
+            f"Sosyal performans yüzeyi, {workforce or '-'} çalışan ölçeğini iş sağlığı güvenliği çıktıları ve tedarik zinciri kontrol sinyalleriyle birlikte ele alır."
+        )
+        paragraphs.append(
+            f"Kayıp günlü iş kazası frekansı {ltifr or '-'}; tedarikçi kod kapsamı {supplier or '-'} ve yüksek riskli tarama oranı {screening or '-'} olarak izlenmiştir."
+        )
+        paragraphs.append(
+            f"Sosyal veri seti {source_note} üzerinden normalleştirilmiş ve yayımlama öncesi izlenebilirlik ekleriyle korunmuştur."
+        )
+    else:
+        paragraphs.extend(str(item).strip() for item in section.get("highlights", [])[:2] if str(item).strip())
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for paragraph in paragraphs:
+        if not paragraph or paragraph in seen:
+            continue
+        seen.add(paragraph)
+        cleaned.append(paragraph)
+    return cleaned[:4]
+
+
+def _build_section_opener_lines(section: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    lines.extend(str(item).strip() for item in section.get("section_topics", [])[:3] if str(item).strip())
+    lines.extend(
+        str(metric.get("metric_name", metric.get("metric_code", ""))).strip()
+        for metric in section.get("metrics", [])[:1]
+        if str(metric.get("metric_name", metric.get("metric_code", ""))).strip()
+    )
+    lines.extend(str(item).strip() for item in section.get("highlights", [])[:2] if str(item).strip())
+    lines.extend(_appendix_label(str(item)) for item in section.get("appendix_refs", [])[:1] if str(item).strip())
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        if not line or line in seen:
+            continue
+        seen.add(line)
+        cleaned.append(line)
+    return cleaned[:4]
+
+
+def _build_metric_rows(section: dict[str, Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for metric in section.get("metrics", []):
+        rows.append(
+            {
+                "code": str(metric.get("metric_code", "")),
+                "name": str(metric.get("metric_name", "")),
+                "value": str(metric.get("display_value", "-")),
+                "period": str(metric.get("period_key", "")),
+                "source": _connector_label(str(metric.get("source_system", ""))),
+            }
+        )
+    return rows
+
+
+def _build_toc_rail_items(toc_cards: list[dict[str, Any]]) -> list[dict[str, str]]:
+    icons = ["01", "02", "03", "04", "05", "06", "07"]
+    items: list[dict[str, str]] = []
+    for index, card in enumerate(toc_cards):
+        items.append(
+            {
+                "icon": icons[index] if index < len(icons) else f"{index + 1:02d}",
+                "label": str(card.get("title", "")),
+                "accent_color": str(card.get("accent_color", "#f07f13")),
+            }
+        )
+    return items
+
+
+def _build_profile_facts(
+    *,
+    company_profile: CompanyProfile,
+    section_payloads: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    facts: list[dict[str, str]] = []
+    if company_profile.founded_year:
+        facts.append({"label": "Kuruluş", "value": str(company_profile.founded_year)})
+    if company_profile.employee_count:
+        facts.append(
+            {
+                "label": "Çalışan",
+                "value": _format_number_tr(company_profile.employee_count),
+            }
+        )
+    if company_profile.headquarters:
+        facts.append({"label": "Merkez", "value": company_profile.headquarters})
+    if company_profile.sector:
+        facts.append({"label": "Sektör", "value": company_profile.sector})
+    facts.extend(_build_cover_metrics(company_profile=company_profile, section_payloads=section_payloads))
+
+    cleaned: list[dict[str, str]] = []
+    seen_labels: set[str] = set()
+    for item in facts:
+        label = item["label"]
+        if label in seen_labels:
+            continue
+        seen_labels.add(label)
+        cleaned.append(item)
+    return cleaned[:4]
+
+
+def _build_evidence_points(section: dict[str, Any]) -> list[str]:
+    evidence_points: list[str] = [
+        _evidence_label(str(item))
+        for item in section.get("required_evidence", [])[:2]
+        if str(item).strip()
+    ]
+    if section.get("source_labels"):
+        evidence_points.append(f"Girdi kaynakları: {', '.join(section['source_labels'])}")
+    if section.get("freshness_label"):
+        evidence_points.append(f"Son senkron tazeliği: {section['freshness_label']}")
+    evidence_points.append(f"Doğrulanmış iddia adedi: {int(section.get('claim_count', 0))}")
+    evidence_points.append("Sayısal ifadeler appendix ve atıf ekleri ile korunur.")
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in evidence_points:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        cleaned.append(item)
+    return cleaned[:4]
+
+
+def _build_insight_chips(section: dict[str, Any]) -> list[str]:
+    chips: list[str] = []
+    for row in section.get("metric_rows", [])[:3]:
+        chips.append(f"{row['name']}: {row['value']}")
+    if section.get("freshness_label"):
+        chips.append(f"Güncellik: {section['freshness_label']}")
+    if section.get("source_labels"):
+        chips.append(f"Kaynaklar: {', '.join(section['source_labels'])}")
+    return chips[:4]
+
+
+def _build_hero_caption(section: dict[str, Any], company_profile: CompanyProfile) -> str:
+    scene = VISUAL_SCENE_LABELS.get(_visual_scene_for_slot(str(section.get("primary_visual_slot", ""))), VISUAL_SCENE_LABELS["default"])
+    return (
+        f"{company_profile.legal_name} için {scene.lower()} katmanı, bu bölümün KPI ve kanıt omurgasını "
+        "tamamlayan dekoratif görsel yüzeyi temsil eder."
+    )
+
+
+def _resolve_layout_variant(section_code: str) -> str:
+    if section_code == "CEO_MESSAGE":
+        return "message"
+    if section_code == "COMPANY_PROFILE":
+        return "profile"
+    if section_code == "DOUBLE_MATERIALITY":
+        return "materiality"
+    return "standard"
 
 
 def _render_html_report(
@@ -925,155 +1855,8 @@ def _render_html_report(
     assumptions: list[str],
 ) -> str:
     appendix_start_page = 3 + (len(section_payloads) * 2)
-    template = Template(
-        """
-<!doctype html>
-<html lang="tr">
-  <head>
-    <meta charset="utf-8" />
-    <style>
-      @page { size: A4 landscape; margin: 0; }
-      body { margin: 0; font-family: "{{ brand.font_family_body }}", "Segoe UI", sans-serif; color: #102a43; }
-      .page { min-height: 595px; page-break-after: always; position: relative; overflow: hidden; }
-      .cover { background: linear-gradient(135deg, {{ brand.primary_color }} 0%, #ff9d00 100%); color: white; }
-      .cover img.hero { position: absolute; right: 0; bottom: 0; width: 58%; height: 100%; object-fit: cover; }
-      .cover .cover-fade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(240,127,19,0.94) 0%, rgba(240,127,19,0.84) 38%, rgba(240,127,19,0.16) 74%, rgba(240,127,19,0.02) 100%); }
-      .cover .inner { position: relative; z-index: 2; padding: 44px 44px 38px; max-width: 420px; }
-      .cover h1 { font-family: "{{ brand.font_family_headings }}", "Segoe UI", sans-serif; font-size: 38px; line-height: 1.06; margin: 18px 0 14px; letter-spacing: 0.01em; }
-      .cover p { font-size: 15px; line-height: 1.8; max-width: 360px; }
-      .cover .meta { position: absolute; left: 44px; bottom: 34px; z-index: 2; font-size: 13px; line-height: 1.7; }
-      .contents { background: #f2f2f2; color: #13293d; }
-      .contents .rail { position: absolute; left: 0; top: 0; bottom: 0; width: 84px; background: rgba(255,255,255,0.72); border-right: 1px solid #d8dee5; }
-      .contents .rail .brand { padding: 18px 12px; font-size: 18px; font-family: "{{ brand.font_family_headings }}", "Segoe UI", sans-serif; color: {{ brand.primary_color }}; }
-      .contents .inner { padding: 40px 54px 36px 120px; }
-      .contents h2 { margin: 0 0 28px; font-size: 34px; color: {{ brand.primary_color }}; font-family: "{{ brand.font_family_headings }}", "Segoe UI", sans-serif; }
-      .toc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
-      .toc-card .header { padding: 12px 18px; border-radius: 16px 16px 0 0; color: white; font-size: 18px; font-family: "{{ brand.font_family_headings }}", "Segoe UI", sans-serif; }
-      .toc-line { display: flex; justify-content: space-between; gap: 14px; padding: 10px 18px; border-bottom: 1px solid #cfd6dc; background: rgba(255,255,255,0.54); font-size: 13px; color: #243b53; }
-      .toc-line a { color: inherit; text-decoration: none; }
-      .section-opener { color: white; }
-      .section-opener .hero-wrap, .section-opener .hero-wrap img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-      .section-opener .hero-wrap::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(240,127,19,0.86), rgba(12,74,110,0.28)); }
-      .section-opener .inner { position: relative; z-index: 2; padding: 76px 58px; max-width: 430px; }
-      .section-opener h2 { margin: 0 0 16px; font-size: 46px; line-height: 1.02; font-family: "{{ brand.font_family_headings }}", "Segoe UI", sans-serif; }
-      .section-opener p { margin: 0; font-size: 18px; line-height: 1.72; }
-      .data-page { background: white; padding: 34px 42px 28px; }
-      .data-page h2 { margin: 0 0 20px; font-size: 30px; color: {{ brand.primary_color }}; font-family: "{{ brand.font_family_headings }}", "Segoe UI", sans-serif; }
-      .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-      .metric-card { border-radius: 22px; background: #f8fbfc; padding: 16px; border: 1px solid #dbe7ec; min-height: 96px; }
-      .metric-card .eyebrow { color: #61788c; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; }
-      .metric-card .value { margin-top: 10px; font-family: "{{ brand.font_family_headings }}", "Segoe UI", sans-serif; font-size: 24px; color: {{ brand.secondary_color }}; }
-      .two-col { display: grid; grid-template-columns: 1.14fr 0.86fr; gap: 22px; }
-      .summary-box, .sidebar-card, .appendix-card { background: #f8fbfc; border-radius: 24px; padding: 20px 22px; border: 1px solid #dbe7ec; }
-      .summary-box p, .appendix-card li { line-height: 1.75; font-size: 14px; }
-      .summary-box ul, .sidebar-card ul, .appendix-card ul { padding-left: 18px; margin: 14px 0 0; }
-      .sidebar-visual { border-radius: 24px; overflow: hidden; margin-bottom: 14px; background: #edf2f7; }
-      .sidebar-visual img { display: block; width: 100%; height: 230px; object-fit: cover; }
-      .chart-box { margin-top: 18px; }
-      .chart-box img { width: 100%; display: block; }
-      table { width: 100%; border-collapse: collapse; font-size: 12px; }
-      th, td { padding: 8px 9px; vertical-align: top; border-bottom: 1px solid #d6e2e8; }
-      th { text-align: left; color: {{ brand.secondary_color }}; }
-      .appendix-page { padding: 28px 34px; background: #f3f5f7; }
-      .appendix-page h2 { margin: 0 0 16px; font-size: 28px; color: {{ brand.primary_color }}; font-family: "{{ brand.font_family_headings }}", "Segoe UI", sans-serif; }
-      .appendix-page .stack { display: grid; gap: 16px; }
-    </style>
-  </head>
-  <body>
-    <section class="page cover">
-      <img class="hero" src="{{ visual_data_uris['cover_hero'] }}" alt="Kapak görseli" />
-      <div class="cover-fade"></div>
-      <div class="inner">
-        <div style="width:78px;height:78px;">{{ monogram_svg | safe }}</div>
-        <h1>Sürdürülebilirlik Raporu — {{ reporting_year }}</h1>
-        <p>{{ company_profile.legal_name }} için ERP verileri, kanıt havuzu ve kontrollü paketleme akışı ile hazırlanan Türkçe sürdürülebilirlik raporu.</p>
-        <p>{{ company_profile.sustainability_approach or company_profile.description or "" }}</p>
-      </div>
-      <div class="meta">
-        <div>{{ tenant.name }}</div>
-        <div>{{ project.name }}</div>
-        <div>{{ company_profile.headquarters or "Türkiye" }}</div>
-      </div>
-    </section>
-
-    <section class="page contents">
-      <div class="rail"><div class="brand">{{ tenant.name }}</div></div>
-      <div class="inner">
-        <h2>İçindekiler</h2>
-        <div class="toc-grid">
-          {% for card in toc_cards %}
-          <div class="toc-card">
-            <div class="header" style="background: {{ card.accent_color }};">{{ card.title }}</div>
-            {% for line in card.lines %}
-            <div class="toc-line">
-              <a href="#section-{{ line.anchor }}">{{ line.label }}</a>
-              <span>{{ line.page_hint }}</span>
-            </div>
-            {% endfor %}
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-    </section>
-
-    {% for section in section_payloads %}
-    <section id="section-{{ section.section_code }}" class="page section-opener">
-      <div class="hero-wrap"><img src="{{ visual_data_uris.get(section.primary_visual_slot, visual_data_uris['cover_hero']) }}" alt="{{ section.title }}" /></div>
-      <div class="inner"><h2>{{ section.title }}</h2><p>{{ section.purpose }}</p></div>
-    </section>
-    <section class="page data-page">
-      <h2>{{ section.title }}</h2>
-      {% if section.metrics %}
-      <div class="metric-grid">
-        {% for metric in section.metrics[:4] %}
-        <div class="metric-card"><div class="eyebrow">{{ metric.metric_code }}</div><div class="value">{{ metric.display_value }}</div><div>{{ metric.metric_name }}</div></div>
-        {% endfor %}
-      </div>
-      {% endif %}
-      <div class="two-col">
-        <div class="summary-box">
-          <p>{{ section.summary }}</p>
-          <ul>{% for item in section.highlights %}<li>{{ item }}</li>{% endfor %}</ul>
-          {% if section.chart_visual_slot and visual_data_uris.get(section.chart_visual_slot) %}
-          <div class="chart-box"><img src="{{ visual_data_uris[section.chart_visual_slot] }}" alt="{{ section.title }} grafiği" /></div>
-          {% elif section.chart_svg %}
-          <div class="chart-box"><img src="{{ 'data:image/svg+xml;base64,' ~ section.chart_svg_b64 }}" alt="{{ section.title }} grafiği" /></div>
-          {% endif %}
-        </div>
-        <div>
-          <div class="sidebar-visual"><img src="{{ visual_data_uris.get(section.primary_visual_slot, visual_data_uris['cover_hero']) }}" alt="{{ section.title }}" /></div>
-          <div class="sidebar-card"><strong style="color:{{ brand.secondary_color }};">Kanıt ve İzlenebilirlik</strong><ul>{% for item in section.claims[:3] %}<li>{{ item }}</li>{% endfor %}</ul></div>
-        </div>
-      </div>
-    </section>
-    {% endfor %}
-
-    <section id="section-APPENDIX" class="page appendix-page">
-      <h2>Ekler ve İzlenebilirlik</h2>
-      <div class="stack">
-        <div class="appendix-card">
-          <strong style="color:{{ brand.secondary_color }};">Atıf Dizini</strong>
-          <table><thead><tr><th>Bölüm</th><th>İddia</th><th>Kaynak</th></tr></thead><tbody>{% for item in citations %}<tr><td>{{ item.section_code }}</td><td>{{ item.statement }}</td><td>{{ item.reference }}</td></tr>{% endfor %}</tbody></table>
-        </div>
-        <div class="appendix-card">
-          <strong style="color:{{ brand.secondary_color }};">Hesaplama Ekleri</strong>
-          <table><thead><tr><th>Formül</th><th>Çıktı</th><th>Birim</th><th>İz</th></tr></thead><tbody>{% for item in calculations %}<tr><td>{{ item.formula_name }}</td><td>{{ item.output_value }}</td><td>{{ item.output_unit }}</td><td>{{ item.trace_log_ref }}</td></tr>{% endfor %}</tbody></table>
-        </div>
-        <div class="appendix-card"><strong style="color:{{ brand.secondary_color }};">Varsayım Kaydı</strong><ul>{% for item in assumptions %}<li>{{ item }}</li>{% endfor %}</ul></div>
-      </div>
-    </section>
-  </body>
-</html>
-        """
-    )
-
-    for section in section_payloads:
-        section["chart_svg_b64"] = (
-            b64encode(section["chart_svg"].encode("utf-8")).decode("ascii")
-            if section.get("chart_svg")
-            else ""
-        )
-
+    template_path = Path(__file__).with_name("report_factory_template.html.jinja")
+    template = Template(template_path.read_text(encoding="utf-8"))
     toc_cards = _build_toc_cards(section_payloads, appendix_start_page)
     for card in toc_cards:
         for line in card["lines"]:
@@ -1089,6 +1872,54 @@ def _render_html_report(
                     "APPENDIX",
                 )
 
+    reporting_year = max(
+        (
+            metric["period_key"]
+            for section in section_payloads
+            for metric in section["metrics"]
+            if str(metric.get("period_key", "")).strip()
+        ),
+        default="2025",
+    )
+    for index, section in enumerate(section_payloads, start=1):
+        section["chart_svg_b64"] = (
+            b64encode(section["chart_svg"].encode("utf-8")).decode("ascii")
+            if section.get("chart_svg")
+            else ""
+        )
+        section["layout_variant"] = _resolve_layout_variant(str(section.get("section_code", "")))
+        section["metric_rows"] = _build_metric_rows(section)
+        section["story_paragraphs"] = _build_story_paragraphs(
+            section=section,
+            company_profile=company_profile,
+        )
+        section["opener_lines"] = _build_section_opener_lines(section)
+        section["appendix_labels"] = [
+            _appendix_label(str(reference))
+            for reference in section.get("appendix_refs", [])
+            if str(reference).strip()
+        ]
+        section["evidence_points"] = _build_evidence_points(section)
+        section["insight_chips"] = _build_insight_chips(section)
+        section["hero_caption"] = _build_hero_caption(section, company_profile)
+        section["opener_page_number"] = 3 + ((index - 1) * 2)
+        section["data_page_number"] = section["opener_page_number"] + 1
+
+    cover_metrics = _build_cover_metrics(
+        company_profile=company_profile,
+        section_payloads=section_payloads,
+    )
+    profile_facts = _build_profile_facts(
+        company_profile=company_profile,
+        section_payloads=section_payloads,
+    )
+    toc_rail_items = _build_toc_rail_items(toc_cards)
+    citation_chunks = _chunk_records(citations, 12)
+    calculation_chunks = _chunk_records(calculations, 14)
+    citation_page_start = appendix_start_page
+    calculation_page_start = citation_page_start + len(citation_chunks)
+    assumption_page_number = calculation_page_start + len(calculation_chunks)
+
     return template.render(
         tenant=tenant,
         project=project,
@@ -1096,12 +1927,21 @@ def _render_html_report(
         brand=brand,
         section_payloads=section_payloads,
         visual_data_uris=visual_data_uris,
-        citations=citations,
-        calculations=calculations,
+        citation_chunks=citation_chunks,
+        calculation_chunks=calculation_chunks,
         assumptions=assumptions,
-        monogram_svg=_build_monogram_svg(tenant.name, brand),
-        reporting_year=max((metric["period_key"] for section in section_payloads for metric in section["metrics"]), default="2025"),
+        monogram_data_uri=_to_data_uri(
+            _build_monogram_svg(tenant.name, brand).encode("utf-8"),
+            "image/svg+xml",
+        ),
+        reporting_year=reporting_year,
+        cover_metrics=cover_metrics,
+        profile_facts=profile_facts,
         toc_cards=toc_cards,
+        toc_rail_items=toc_rail_items,
+        citation_page_start=citation_page_start,
+        calculation_page_start=calculation_page_start,
+        assumption_page_number=assumption_page_number,
     )
 
 
@@ -1493,7 +2333,16 @@ def _render_reportlab_pdf(
     pdf.setCreator(tenant.name)
 
     cover_hero = visual_data.get("cover_hero")
-    cover_bytes = cover_hero[0] if cover_hero else _generate_fallback_visual(title="Kapak", brand=brand, accent_label="COVER")
+    cover_bytes = (
+        cover_hero[0]
+        if cover_hero
+        else _generate_fallback_visual(
+            title="Kapak",
+            brand=brand,
+            accent_label="COVER",
+            visual_slot="cover_hero",
+        )
+    )
     _draw_cover_page(
         pdf,
         tenant=tenant,
@@ -1972,8 +2821,12 @@ def ensure_report_package(
                                 visual_slot=visual_slot,
                                 title=section["title"],
                                 prompt_text=(
-                                    f"Dekoratif kurumsal sürdürülebilirlik görseli; {section['title']} bölümü için, "
-                                    "temsilî, profesyonel ve marka uyumlu; gerçek operasyon kanıtı gibi görünmeyen."
+                                    f"{section['title']} bölümü için dekoratif kurumsal sürdürülebilirlik görseli. "
+                                    f"Sahne: {VISUAL_SCENE_LABELS.get(_visual_scene_for_slot(visual_slot), VISUAL_SCENE_LABELS['default'])}. "
+                                    f"Sektör bağlamı: {company_profile.sector or 'kurumsal üretim'}. "
+                                    f"Renk paleti: primary {brand.primary_color}, secondary {brand.secondary_color}, accent {brand.accent_color}. "
+                                    "Tam sayfa editoryal kalite, profesyonel annual report estetiği, veri iddiası taşımayan, "
+                                    "gerçek belge veya operasyon fotoğrafı gibi görünmeyen, üzerinde metin veya rakam barındırmayan."
                                 ),
                             )
                         visual_data[visual_slot] = (payload, content_type)
@@ -1988,8 +2841,11 @@ def ensure_report_package(
                         visual_slot="cover_hero",
                         title="Kurumsal Sürdürülebilirlik",
                         prompt_text=(
-                            "Dekoratif kurumsal kapak görseli, turuncu ve mavi tonlarda, "
-                            "endüstriyel sürdürülebilirlik temalı, gerçek kanıt iddiası taşımayan."
+                            f"Dekoratif kurumsal kapak görseli. Marka tonu {brand.tone_name}; "
+                            f"renkler {brand.primary_color}, {brand.secondary_color}, {brand.accent_color}. "
+                            f"Konu: {company_profile.sector or 'endüstriyel üretim'} için sürdürülebilirlik report cover. "
+                            "Premium annual report hissi, derinlikli kompozisyon, endüstriyel ve çevresel motif dengesi, "
+                            "metin ve rakam içermeyen, veri iddiası taşımayan konsept görsel."
                         ),
                     )
                     visual_data["cover_hero"] = (payload, content_type)

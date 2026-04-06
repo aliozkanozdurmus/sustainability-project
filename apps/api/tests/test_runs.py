@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 import pdfplumber
+from pypdf import PdfReader
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -30,8 +31,10 @@ from app.models.core import (
 )
 from app.api.routes.runs import VERIFIER_VERSION, _persist_verification_artifacts
 from app.orchestration.checkpoint_store import LocalJsonlCheckpointStore
+from app.services.job_queue import get_job_queue_service
 from app.services.integrations import run_connector_sync
 from app.services.report_context import ensure_project_report_context
+from app.services.report_factory import REPORT_PDF_ARTIFACT_TYPE
 
 
 def _seed_tenant_and_project(db: Session) -> tuple[str, str]:
@@ -87,6 +90,75 @@ def _write_local_index(root: Path, index_name: str, rows: dict[str, dict[str, ob
     root.mkdir(parents=True, exist_ok=True)
     target = root / f"{index_name}.json"
     target.write_text(json.dumps(rows, ensure_ascii=True, indent=2), encoding="utf-8")
+
+
+def _collect_outline_titles(items: list[object]) -> list[str]:
+    titles: list[str] = []
+    for item in items:
+        if isinstance(item, list):
+            titles.extend(_collect_outline_titles(item))
+            continue
+        title = getattr(item, "title", None)
+        if isinstance(title, str) and title:
+            titles.append(title)
+    return titles
+
+
+class _StubQueueService:
+    def __init__(self) -> None:
+        self.enqueued_packages: list[tuple[str, str | None]] = []
+
+    async def enqueue_extraction(self, extraction_id: str) -> str:
+        return f"queue-extract-{extraction_id}"
+
+    async def enqueue_report_package(self, report_run_id: str, *, package_job_id: str | None = None) -> str:
+        self.enqueued_packages.append((report_run_id, package_job_id))
+        return package_job_id or f"pkg-{report_run_id}"
+
+
+def _finalize_package_as_worker(db: Session, run_id: str) -> None:
+    from app.services.report_factory import ensure_report_package as generate_report_package
+
+    report_run = db.get(ReportRun, run_id)
+    assert report_run is not None
+    package_result = generate_report_package(db=db, report_run=report_run)
+    report_run.status = "published"
+    report_run.publish_ready = True
+    if report_run.completed_at is None:
+        report_run.completed_at = datetime.now(timezone.utc)
+    report_pdf = next(
+        (
+            artifact
+            for artifact in package_result.artifacts
+            if artifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE
+        ),
+        None,
+    )
+    db.add(
+        AuditEvent(
+            tenant_id=report_run.tenant_id,
+            project_id=report_run.project_id,
+            report_run_id=report_run.id,
+            event_type="publish",
+            event_name="publish_completed",
+            event_payload={
+                "schema_version": "publish_gate_v1",
+                "run_id": run_id,
+                "blocked": False,
+                "published": True,
+                "package_job_id": package_result.package.id,
+                "package_status": package_result.package.status,
+                "report_pdf": {
+                    "artifact_id": report_pdf.id,
+                    "artifact_type": report_pdf.artifact_type,
+                    "filename": report_pdf.filename,
+                }
+                if report_pdf is not None
+                else None,
+            },
+        )
+    )
+    db.commit()
 
 
 def test_create_run_initializes_report_run_and_checkpoint(tmp_path: Path) -> None:
@@ -1206,6 +1278,8 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
     client = TestClient(app)
     original_local_blob_root = settings.local_blob_root
     settings.local_blob_root = str(tmp_path / "storage")
+    stub_queue = _StubQueueService()
+    app.dependency_overrides[get_job_queue_service] = lambda: stub_queue
 
     try:
         with TestingSessionLocal() as session:
@@ -1319,21 +1393,37 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
         body = response.json()
         assert body["schema_version"] == "publish_gate_v1"
         assert body["run_id"] == run_id
-        assert body["published"] is True
+        assert body["published"] is False
         assert body["blocked"] is False
-        assert body["report_run_status"] == "published"
+        assert body["report_run_status"] == "completed"
         assert body["publish_ready"] is True
         assert body["blockers"] == []
         assert body["run_attempt"] == 2
         assert body["run_execution_id"] == "exec_publish_2"
-        assert body["package_status"] == "completed"
+        assert body["package_status"] == "queued"
         assert body["package_job_id"]
-        assert len(body["artifacts"]) >= 6
-        assert body["report_pdf"] is not None
-        assert body["report_pdf"]["artifact_type"] == "report_pdf"
-        assert body["report_pdf"]["filename"].endswith(".pdf")
-        assert body["report_pdf"]["size_bytes"] > 0
-        assert body["report_pdf"]["metadata"]["page_count"] >= 10
+        assert body["artifacts"] == []
+        assert body["report_pdf"] is None
+        assert stub_queue.enqueued_packages == [(run_id, body["package_job_id"])]
+
+        with TestingSessionLocal() as session:
+            _finalize_package_as_worker(session, run_id)
+
+        package_status_response = client.get(
+            f"/runs/{run_id}/package-status",
+            params={"tenant_id": tenant_id, "project_id": project_id},
+            headers={"x-user-role": "analyst"},
+        )
+        assert package_status_response.status_code == 200
+        package_status = package_status_response.json()
+        assert package_status["package_status"] == "completed"
+        assert package_status["artifacts"]
+        assert package_status["report_quality_score"] is not None
+        report_pdf_artifact_payload = next(
+            artifact
+            for artifact in package_status["artifacts"]
+            if artifact["artifact_type"] == "report_pdf"
+        )
 
         download_response = client.get(
             f"/runs/{run_id}/report-pdf",
@@ -1343,6 +1433,7 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
         assert download_response.status_code == 200
         assert download_response.headers["content-type"] == "application/pdf"
         assert download_response.content.startswith(b"%PDF")
+        pdf_reader = PdfReader(BytesIO(download_response.content))
         with pdfplumber.open(BytesIO(download_response.content)) as pdf:
             first_page_text = pdf.pages[0].extract_text() or ""
             full_text = "\n".join((page.extract_text() or "") for page in pdf.pages)
@@ -1350,6 +1441,20 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
         assert "İçindekiler" in full_text
         assert "Çevresel Performans" in full_text
         assert "Atıf Dizini" in full_text
+        assert len(pdf_reader.pages) >= 15
+        metadata_title = str(pdf_reader.metadata.get("/Title", ""))
+        assert "Sürdürülebilirlik Raporu" in metadata_title
+        outline_titles = _collect_outline_titles(pdf_reader.outline)
+        assert "Kapak" in outline_titles
+        assert "İçindekiler" in outline_titles
+        assert "Çevresel Performans" in outline_titles
+        first_page_resources = pdf_reader.pages[0].get("/Resources")
+        assert first_page_resources is not None
+        assert first_page_resources.get("/XObject") is not None
+        if report_pdf_artifact_payload.get("metadata", {}).get("renderer") == "weasyprint":
+            toc_annots = pdf_reader.pages[1].get("/Annots")
+            assert toc_annots is not None
+            assert len(toc_annots) >= 3
 
         with TestingSessionLocal() as session:
             report_run = session.get(ReportRun, run_id)
@@ -1377,7 +1482,7 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
         engine.dispose()
 
 
-def test_publish_run_records_failure_when_report_pdf_generation_fails(tmp_path: Path, monkeypatch) -> None:
+def test_publish_run_records_failure_when_report_pdf_generation_fails(tmp_path: Path) -> None:
     db_file = tmp_path / "test_runs_publish_failure.db"
     engine = create_engine(f"sqlite:///{db_file}")
     TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
@@ -1396,6 +1501,11 @@ def test_publish_run_records_failure_when_report_pdf_generation_fails(tmp_path: 
     settings.local_blob_root = str(tmp_path / "storage")
     original_local_blob_root = settings.local_blob_root
     settings.local_blob_root = str(tmp_path / "storage")
+    class _FailingQueueService(_StubQueueService):
+        async def enqueue_report_package(self, report_run_id: str, *, package_job_id: str | None = None) -> str:
+            raise RuntimeError("queue dispatch exploded")
+
+    app.dependency_overrides[get_job_queue_service] = lambda: _FailingQueueService()
 
     try:
         with TestingSessionLocal() as session:
@@ -1491,11 +1601,6 @@ def test_publish_run_records_failure_when_report_pdf_generation_fails(tmp_path: 
             session.commit()
             run_id = report_run.id
 
-            def failing_publish_artifact(*, db, report_run):
-                raise RuntimeError("artifact upload exploded")
-
-            monkeypatch.setattr("app.api.routes.runs.ensure_report_package", failing_publish_artifact)
-
         response = client.post(
             f"/runs/{run_id}/publish",
             json={"tenant_id": tenant_id, "project_id": project_id},
@@ -1504,13 +1609,14 @@ def test_publish_run_records_failure_when_report_pdf_generation_fails(tmp_path: 
         assert response.status_code == 500
         detail = response.json()["detail"]
         assert detail["error_code"] == "REPORT_PACKAGE_GENERATION_FAILED"
-        assert "artifact upload exploded" in detail["reason"]
+        assert "queue dispatch exploded" in detail["reason"]
 
         with TestingSessionLocal() as session:
             report_run = session.get(ReportRun, run_id)
             assert report_run is not None
             assert report_run.status == "completed"
             assert report_run.publish_ready is True
+            assert report_run.package_status == "failed"
             assert session.query(ReportArtifact).filter(ReportArtifact.report_run_id == run_id).count() == 0
             failed_events = (
                 session.query(AuditEvent)
@@ -1634,6 +1740,8 @@ def test_publish_run_is_idempotent_when_already_published(tmp_path: Path) -> Non
     client = TestClient(app)
     original_local_blob_root = settings.local_blob_root
     settings.local_blob_root = str(tmp_path / "storage")
+    stub_queue = _StubQueueService()
+    app.dependency_overrides[get_job_queue_service] = lambda: stub_queue
 
     try:
         with TestingSessionLocal() as session:
@@ -1665,10 +1773,13 @@ def test_publish_run_is_idempotent_when_already_published(tmp_path: Path) -> Non
         )
         assert first_response.status_code == 200
         first_body = first_response.json()
-        assert first_body["published"] is True
+        assert first_body["published"] is False
         assert first_body["blocked"] is False
         assert first_body["report_run_status"] == "published"
-        assert first_body["report_pdf"] is not None
+        assert first_body["report_pdf"] is None
+
+        with TestingSessionLocal() as session:
+            _finalize_package_as_worker(session, run_id)
 
         second_response = client.post(
             f"/runs/{run_id}/publish",
@@ -1678,7 +1789,7 @@ def test_publish_run_is_idempotent_when_already_published(tmp_path: Path) -> Non
         assert second_response.status_code == 200
         second_body = second_response.json()
         assert second_body["report_pdf"] is not None
-        assert second_body["report_pdf"]["artifact_id"] == first_body["report_pdf"]["artifact_id"]
+        assert second_body["published"] is True
         assert second_body["package_job_id"] == first_body["package_job_id"]
 
         with TestingSessionLocal() as session:

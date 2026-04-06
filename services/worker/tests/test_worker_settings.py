@@ -16,6 +16,7 @@ def test_worker_settings_registers_sample_job() -> None:
     assert "sample_health_job" in job_names
     assert "run_document_extraction_job" in job_names
     assert "run_document_indexing_job" in job_names
+    assert "run_report_package_job" in job_names
     assert WorkerSettings.queue_name == "arq:queue"
     assert WorkerSettings.max_tries >= 1
 

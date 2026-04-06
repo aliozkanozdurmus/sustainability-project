@@ -26,11 +26,13 @@ test("happy-path publish-to-pdf", async ({ page }, testInfo) => {
   await expect(page.getByTestId(`run-${runId}-publish-ready`)).toHaveText("yes");
 
   await page.getByTestId(`run-${runId}-publish`).click();
-  await expect(page.getByTestId("approval-center-notice")).toContainText(
-    `Run ${runId} publish edildi.`,
-  );
-  await expect(page.getByTestId(`run-${runId}-status`)).toHaveText("published");
-  await expect(page.getByTestId(`run-${runId}-download-pdf`)).toBeVisible();
+  await expect(page.getByTestId("approval-center-notice")).toContainText(`Run ${runId}`);
+  await expect(page.getByTestId(`run-${runId}-status`)).toHaveText("published", {
+    timeout: 120_000,
+  });
+  await expect(page.getByTestId(`run-${runId}-download-pdf`)).toBeVisible({
+    timeout: 120_000,
+  });
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByTestId(`run-${runId}-download-pdf`).click();
