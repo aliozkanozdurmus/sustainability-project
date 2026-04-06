@@ -31,6 +31,36 @@ class ProjectResponse(BaseModel):
     status: str
 
 
+class CompanyProfileResponse(BaseModel):
+    id: str
+    tenant_id: str
+    project_id: str
+    legal_name: str
+    sector: str | None = None
+    headquarters: str | None = None
+    ceo_name: str | None = None
+
+
+class BrandKitResponse(BaseModel):
+    id: str
+    tenant_id: str
+    project_id: str
+    brand_name: str
+    primary_color: str
+    secondary_color: str
+    accent_color: str
+    font_family_headings: str
+    font_family_body: str
+
+
+class IntegrationConfigSummaryResponse(BaseModel):
+    id: str
+    connector_type: str
+    display_name: str
+    status: str
+    last_synced_at: str | None = None
+
+
 class TenantListResponse(BaseModel):
     items: list[TenantResponse]
     total: int
@@ -49,8 +79,15 @@ class WorkspaceBootstrapRequest(BaseModel):
     reporting_currency: str = Field(default="TRY", min_length=1, max_length=8)
 
 
-class WorkspaceBootstrapResponse(BaseModel):
+class WorkspaceContextResponse(BaseModel):
     tenant: TenantResponse
     project: ProjectResponse
+    company_profile: CompanyProfileResponse
+    brand_kit: BrandKitResponse
+    integrations: list[IntegrationConfigSummaryResponse]
+    blueprint_version: str
+
+
+class WorkspaceBootstrapResponse(WorkspaceContextResponse):
     tenant_created: bool
     project_created: bool

@@ -19,14 +19,16 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import {
   buildApiHeaders,
+  buildRunArtifactPath,
+  buildRunPackageStatusPath,
   buildRunReportPdfPath,
   getResponseErrorMessage,
   getApiBaseUrl,
-  getInitialWorkspaceContext,
   parseJsonOrThrow,
   persistWorkspaceContext,
   type WorkspaceContext,
 } from "@/lib/api/client";
+import { useWorkspaceContext } from "@/lib/api/workspace-store";
 
 type ReportArtifact = {
   artifact_id: string;
@@ -37,6 +39,7 @@ type ReportArtifact = {
   checksum: string;
   created_at_utc: string;
   download_path: string;
+  metadata?: Record<string, unknown>;
 };
 
 type RunListItem = {
@@ -50,6 +53,10 @@ type RunListItem = {
   triage_required: boolean;
   last_checkpoint_status: string;
   last_checkpoint_at_utc: string | null;
+  package_status: string;
+  report_quality_score: number | null;
+  latest_sync_at_utc: string | null;
+  visual_generation_status: string;
   report_pdf: ReportArtifact | null;
 };
 
@@ -80,7 +87,28 @@ type TriageResponse = {
 };
 
 type RunPublishResponse = {
+  package_job_id: string | null;
+  package_status: string;
+  estimated_stage: string | null;
+  artifacts: ReportArtifact[];
   report_pdf: ReportArtifact | null;
+};
+
+type RunPackageStatus = {
+  run_id: string;
+  package_job_id: string | null;
+  package_status: string;
+  current_stage: string | null;
+  report_quality_score: number | null;
+  visual_generation_status: string;
+  artifacts: ReportArtifact[];
+  stage_history: Array<{
+    stage: string;
+    status: string;
+    at_utc: string;
+    detail?: string | null;
+  }>;
+  generated_at_utc: string;
 };
 
 function formatUiErrorMessage(rawMessage: string): string {
@@ -125,14 +153,9 @@ function toUiErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function readInitialWorkspace(): WorkspaceContext | null {
-  if (typeof window === "undefined") return null;
-  return getInitialWorkspaceContext();
-}
-
 function useWorkspaceFromQueryAndStorage(): WorkspaceContext | null {
   const params = useSearchParams();
-  const [storedWorkspace] = useState<WorkspaceContext | null>(() => readInitialWorkspace());
+  const storedWorkspace = useWorkspaceContext();
 
   const queryTenant = params.get("tenantId");
   const queryProject = params.get("projectId");
@@ -157,12 +180,12 @@ function ApprovalCenterFallback() {
   return (
     <AppShell
       activePath="/approval-center"
-      title="Approval Center and SLA Control"
-      subtitle="Loading approval data..."
-      actions={[{ href: "/reports/new", label: "New Report Wizard" }]}
+      title="Report Factory Kontrol Merkezi"
+      subtitle="Operasyon verileri yükleniyor..."
+      actions={[{ href: "/reports/new", label: "Yeni Rapor Run'ı" }]}
     >
       <div className="rounded-xl border bg-card px-4 py-6 text-sm text-muted-foreground">
-        Loading approval center...
+        Report factory yükleniyor...
       </div>
     </AppShell>
   );
@@ -181,15 +204,16 @@ function ApprovalCenterPageContent() {
   const [runs, setRuns] = useState<RunListItem[]>([]);
   const [runsBusy, setRunsBusy] = useState(false);
   const [triage, setTriage] = useState<TriageResponse | null>(null);
+  const [packageState, setPackageState] = useState<RunPackageStatus | null>(null);
 
   const runStats = useMemo(() => {
     const pending = runs.filter((row) => row.report_run_status !== "published").length;
     const slaRisk = runs.filter((row) => row.triage_required).length;
-    const approverPool = runs.filter((row) => row.human_approval === "pending").length;
+    const packageRunning = runs.filter((row) => row.package_status === "running").length;
     return {
       pending,
       slaRisk,
-      approverPool,
+      packageRunning,
     };
   }, [runs]);
 
@@ -217,6 +241,28 @@ function ApprovalCenterPageContent() {
   useEffect(() => {
     void loadRuns();
   }, [loadRuns]);
+
+  async function handleLoadPackageStatus(runId: string) {
+    if (!workspace) return;
+    setBusyRunId(runId);
+    setError(null);
+    try {
+      const apiBase = getApiBaseUrl();
+      const response = await fetch(
+        `${apiBase}${buildRunPackageStatusPath(workspace, runId)}`,
+        {
+          headers: buildApiHeaders(workspace.tenantId),
+        },
+      );
+      const payload = await parseJsonOrThrow<RunPackageStatus>(response);
+      setPackageState(payload);
+      setNotice(`Package durumu güncellendi: ${payload.package_status}.`);
+    } catch (err) {
+      setError(toUiErrorMessage(err, "Package durumu alınamadı."));
+    } finally {
+      setBusyRunId(null);
+    }
+  }
 
   async function handleExecute(runId: string) {
     if (!workspace) return;
@@ -293,9 +339,20 @@ function ApprovalCenterPageContent() {
       const payload = await parseJsonOrThrow<RunPublishResponse>(response);
       setNotice(
         payload.report_pdf
-          ? `Run ${runId} published. PDF is ready for download.`
-          : `Run ${runId} published.`,
+          ? `Run ${runId} publish edildi. Paket tamamlandı ve PDF indirilebilir.`
+          : `Run ${runId} publish edildi.`,
       );
+      setPackageState({
+        run_id: runId,
+        package_job_id: payload.package_job_id,
+        package_status: payload.package_status,
+        current_stage: payload.estimated_stage,
+        report_quality_score: null,
+        visual_generation_status: "completed",
+        artifacts: payload.artifacts,
+        stage_history: [],
+        generated_at_utc: new Date().toISOString(),
+      });
       await loadRuns();
     } catch (err) {
       setError(toUiErrorMessage(err, "Publish failed."));
@@ -304,14 +361,22 @@ function ApprovalCenterPageContent() {
     }
   }
 
-  async function handleDownloadPdf(runId: string, reportPdf: ReportArtifact | null) {
+  async function handleDownloadArtifact(
+    runId: string,
+    artifact: ReportArtifact | null,
+    fallbackFilename: string,
+  ) {
     if (!workspace) return;
     setBusyRunId(runId);
     setError(null);
     setNotice(null);
     try {
       const apiBase = getApiBaseUrl();
-      const path = reportPdf?.download_path ?? buildRunReportPdfPath(workspace, runId);
+      const path =
+        artifact?.download_path ??
+        (artifact
+          ? buildRunArtifactPath(workspace, runId, artifact.artifact_id)
+          : buildRunReportPdfPath(workspace, runId));
       const response = await fetch(`${apiBase}${path}`, {
         headers: buildApiHeaders(workspace.tenantId, {
           includeJsonContentType: false,
@@ -329,14 +394,14 @@ function ApprovalCenterPageContent() {
       const objectUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
-      anchor.download = reportPdf?.filename ?? `report-${runId}.pdf`;
+      anchor.download = artifact?.filename ?? fallbackFilename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
-      setNotice(`PDF download started for run ${runId}.`);
+      setNotice(`İndirme başlatıldı: ${anchor.download}`);
     } catch (err) {
-      setError(toUiErrorMessage(err, "PDF download failed."));
+      setError(toUiErrorMessage(err, "Artifact indirilemedi."));
     } finally {
       setBusyRunId(null);
     }
@@ -366,20 +431,20 @@ function ApprovalCenterPageContent() {
   return (
     <AppShell
       activePath="/approval-center"
-      title="Approval Center and SLA Control"
-      subtitle="Run operations, triage, and publish control are managed from this screen."
-      actions={[{ href: "/reports/new", label: "New Report Wizard" }]}
+      title="Report Factory Kontrol Merkezi"
+      subtitle="Run operasyonu, package üretimi, triage ve controlled publish bu ekrandan yönetilir."
+      actions={[{ href: "/reports/new", label: "Yeni Report Run" }]}
     >
       {created ? (
         <div className="mb-4 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-          Run created ({mode === "api" ? "API" : "unknown"} mode)
+          Run oluşturuldu ({mode === "api" ? "API" : "bilinmeyen"} mod)
           {createdRunId ? ` - ${createdRunId}` : ""}.
         </div>
       ) : null}
 
       {!workspace ? (
         <div className="mb-4 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-          Workspace not selected. Open &quot;New Report Wizard&quot; and create/select tenant + project first.
+          Workspace seçili değil. Önce &quot;Yeni Report Run&quot; ekranından tenant ve proje seç.
         </div>
       ) : (
         <div className="mb-4 rounded-xl border bg-card px-4 py-3 text-xs text-muted-foreground">
@@ -419,10 +484,10 @@ function ApprovalCenterPageContent() {
         </div>
         <div className="relative flex min-h-[230px] flex-col justify-end p-5 md:min-h-[280px]">
           <p className="text-muted-foreground text-xs uppercase tracking-[0.16em]">
-            Governance Signature Workflow
+            Report Factory Pipeline
           </p>
           <p className="mt-2 max-w-xl text-sm">
-            Execute runs, inspect triage, and publish only when gates are clear.
+            Sync, execute, triage, package ve controlled publish akışını tek yerden izle.
           </p>
         </div>
       </article>
@@ -431,35 +496,35 @@ function ApprovalCenterPageContent() {
         <article className="rounded-xl border bg-card p-4 shadow-sm">
           <div className="flex items-center gap-2">
             <Clock3 className="h-4 w-4 text-amber-600 dark:text-amber-300" />
-            <p className="text-sm">Pending Runs</p>
+            <p className="text-sm">Bekleyen Run</p>
           </div>
           <p className="mt-3 text-2xl font-semibold">{runStats.pending}</p>
-          <p className="text-muted-foreground text-sm">Runs not yet published</p>
+          <p className="text-muted-foreground text-sm">Henüz publish edilmemiş run&apos;lar</p>
         </article>
         <article className="rounded-xl border bg-card p-4 shadow-sm">
           <div className="flex items-center gap-2">
             <AlertOctagon className="h-4 w-4 text-destructive" />
-            <p className="text-sm">Triage Required</p>
+            <p className="text-sm">Triage Gerekli</p>
           </div>
           <p className="mt-3 text-2xl font-semibold">{runStats.slaRisk}</p>
-          <p className="text-muted-foreground text-sm">Runs with verifier issues</p>
+          <p className="text-muted-foreground text-sm">Verifier kaynaklı bloklar</p>
         </article>
         <article className="rounded-xl border bg-card p-4 shadow-sm">
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-sky-600 dark:text-sky-300" />
-            <p className="text-sm">Pending Human Approval</p>
+            <p className="text-sm">Package Çalışan</p>
           </div>
-          <p className="mt-3 text-2xl font-semibold">{runStats.approverPool}</p>
-          <p className="text-muted-foreground text-sm">Approval state = pending</p>
+          <p className="mt-3 text-2xl font-semibold">{runStats.packageRunning}</p>
+          <p className="text-muted-foreground text-sm">Aktif package üretim işleri</p>
         </article>
       </div>
 
       <article className="mt-4 rounded-xl border bg-card p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Run Queue</h2>
+          <h2 className="text-lg font-semibold">Run Kuyruğu</h2>
           <Button type="button" variant="outline" onClick={() => void loadRuns()} disabled={runsBusy || !workspace}>
             {runsBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Refresh
+            Yenile
           </Button>
         </div>
         <div className="overflow-x-auto">
@@ -472,8 +537,11 @@ function ApprovalCenterPageContent() {
                 <th className="px-3 py-2">Run</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">Node</th>
+                <th className="px-3 py-2">Package</th>
+                <th className="px-3 py-2">Kalite</th>
                 <th className="px-3 py-2">Triage</th>
                 <th className="px-3 py-2">Publish Ready</th>
+                <th className="px-3 py-2">Son Sync</th>
                 <th className="px-3 py-2">Actions</th>
               </tr>
             </thead>
@@ -487,10 +555,15 @@ function ApprovalCenterPageContent() {
                   <td className="px-3 py-3" data-testid={`run-${row.run_id}-node`}>
                     {row.active_node}
                   </td>
+                  <td className="px-3 py-3">{row.package_status}</td>
+                  <td className="px-3 py-3">
+                    {row.report_quality_score !== null ? row.report_quality_score.toFixed(1) : "-"}
+                  </td>
                   <td className="px-3 py-3">{row.triage_required ? "yes" : "no"}</td>
                   <td className="px-3 py-3" data-testid={`run-${row.run_id}-publish-ready`}>
                     {row.publish_ready ? "yes" : "no"}
                   </td>
+                  <td className="px-3 py-3">{row.latest_sync_at_utc ? new Date(row.latest_sync_at_utc).toLocaleString("tr-TR") : "-"}</td>
                   <td className="rounded-r-lg px-3 py-3">
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -518,6 +591,17 @@ function ApprovalCenterPageContent() {
                       <Button
                         type="button"
                         size="sm"
+                        variant="outline"
+                        onClick={() => void handleLoadPackageStatus(row.run_id)}
+                        disabled={busyRunId === row.run_id || !workspace}
+                        data-testid={`run-${row.run_id}-package-status`}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Package
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
                         onClick={() => void handlePublish(row.run_id)}
                         disabled={busyRunId === row.run_id || !workspace}
                         data-testid={`run-${row.run_id}-publish`}
@@ -530,7 +614,13 @@ function ApprovalCenterPageContent() {
                           type="button"
                           size="sm"
                           variant="outline"
-                          onClick={() => void handleDownloadPdf(row.run_id, row.report_pdf)}
+                          onClick={() =>
+                            void handleDownloadArtifact(
+                              row.run_id,
+                              row.report_pdf,
+                              `report-${row.run_id}.pdf`,
+                            )
+                          }
                           disabled={busyRunId === row.run_id || !workspace}
                           data-testid={`run-${row.run_id}-download-pdf`}
                         >
@@ -570,8 +660,8 @@ function ApprovalCenterPageContent() {
               ))}
               {runs.length === 0 ? (
                 <tr>
-                  <td className="rounded-lg px-3 py-4 text-sm text-muted-foreground" colSpan={6}>
-                    No runs found for current workspace.
+                  <td className="rounded-lg px-3 py-4 text-sm text-muted-foreground" colSpan={9}>
+                    Mevcut workspace için run bulunamadı.
                   </td>
                 </tr>
               ) : null}
@@ -579,6 +669,83 @@ function ApprovalCenterPageContent() {
           </table>
         </div>
       </article>
+
+      {packageState ? (
+        <article className="mt-4 rounded-xl border bg-card p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Package Durumu - {packageState.run_id}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Status: {packageState.package_status}
+                {packageState.current_stage ? ` | Stage: ${packageState.current_stage}` : ""}
+                {packageState.report_quality_score !== null
+                  ? ` | Kalite: ${packageState.report_quality_score.toFixed(1)}`
+                  : ""}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleLoadPackageStatus(packageState.run_id)}
+              disabled={busyRunId === packageState.run_id || !workspace}
+            >
+              {busyRunId === packageState.run_id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Package Yenile
+            </Button>
+          </div>
+          <div className="mt-4 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-2xl border bg-muted/25 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Stage History</p>
+              <div className="mt-3 space-y-2">
+                {packageState.stage_history.map((item) => (
+                  <div key={`${item.stage}-${item.at_utc}`} className="rounded-xl border bg-background px-3 py-2 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <strong>{item.stage}</strong>
+                      <span className="text-xs text-muted-foreground">{item.status}</span>
+                    </div>
+                    {item.detail ? <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p> : null}
+                  </div>
+                ))}
+                {packageState.stage_history.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Henüz stage geçmişi yok.</p>
+                ) : null}
+              </div>
+            </div>
+            <div className="rounded-2xl border bg-muted/25 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Artifacts</p>
+              <div className="mt-3 space-y-2">
+                {packageState.artifacts.map((artifact) => (
+                  <div key={artifact.artifact_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background px-3 py-3 text-sm">
+                    <div>
+                      <p className="font-medium">{artifact.filename}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {artifact.artifact_type} | {artifact.content_type} | {artifact.size_bytes} bytes
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleDownloadArtifact(packageState.run_id, artifact, artifact.filename)}
+                      disabled={busyRunId === packageState.run_id || !workspace}
+                    >
+                      <Download className="h-4 w-4" />
+                      İndir
+                    </Button>
+                  </div>
+                ))}
+                {packageState.artifacts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Henüz artifact üretilmedi.</p>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </article>
+      ) : null}
 
       {triage ? (
         <article className="mt-4 rounded-xl border bg-card p-5 shadow-sm">
@@ -608,7 +775,7 @@ function ApprovalCenterPageContent() {
       <div className="mt-4 rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4" />
-          Publish should only be triggered after execute + triage checks are clean.
+          Controlled publish yalnızca execute tamamlandıktan ve triage temizlendikten sonra tetiklenmeli.
         </div>
       </div>
     </AppShell>

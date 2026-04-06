@@ -6,9 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_roles
 from app.db.session import get_db
-from app.models.core import Project, Tenant
+from app.models.core import BrandKit, CompanyProfile, IntegrationConfig, Project, Tenant
 from app.schemas.auth import CurrentUser
 from app.schemas.catalog import (
+    BrandKitResponse,
+    CompanyProfileResponse,
+    IntegrationConfigSummaryResponse,
     ProjectCreateRequest,
     ProjectListResponse,
     ProjectResponse,
@@ -17,7 +20,9 @@ from app.schemas.catalog import (
     TenantResponse,
     WorkspaceBootstrapRequest,
     WorkspaceBootstrapResponse,
+    WorkspaceContextResponse,
 )
+from app.services.report_context import ensure_project_report_context
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 CATALOG_MUTATION_ROLES = ("admin", "compliance_manager", "analyst")
@@ -41,6 +46,61 @@ def _to_project_response(project: Project) -> ProjectResponse:
         code=project.code,
         reporting_currency=project.reporting_currency,
         status=project.status,
+    )
+
+
+def _to_company_profile_response(profile: CompanyProfile) -> CompanyProfileResponse:
+    return CompanyProfileResponse(
+        id=profile.id,
+        tenant_id=profile.tenant_id,
+        project_id=profile.project_id,
+        legal_name=profile.legal_name,
+        sector=profile.sector,
+        headquarters=profile.headquarters,
+        ceo_name=profile.ceo_name,
+    )
+
+
+def _to_brand_kit_response(brand_kit: BrandKit) -> BrandKitResponse:
+    return BrandKitResponse(
+        id=brand_kit.id,
+        tenant_id=brand_kit.tenant_id,
+        project_id=brand_kit.project_id,
+        brand_name=brand_kit.brand_name,
+        primary_color=brand_kit.primary_color,
+        secondary_color=brand_kit.secondary_color,
+        accent_color=brand_kit.accent_color,
+        font_family_headings=brand_kit.font_family_headings,
+        font_family_body=brand_kit.font_family_body,
+    )
+
+
+def _to_integration_summary_response(integration: IntegrationConfig) -> IntegrationConfigSummaryResponse:
+    return IntegrationConfigSummaryResponse(
+        id=integration.id,
+        connector_type=integration.connector_type,
+        display_name=integration.display_name,
+        status=integration.status,
+        last_synced_at=integration.last_synced_at.isoformat() if integration.last_synced_at else None,
+    )
+
+
+def _build_workspace_context_response(
+    *,
+    tenant: Tenant,
+    project: Project,
+    company_profile: CompanyProfile,
+    brand_kit: BrandKit,
+    integrations: list[IntegrationConfig],
+    blueprint_version: str,
+) -> WorkspaceContextResponse:
+    return WorkspaceContextResponse(
+        tenant=_to_tenant_response(tenant),
+        project=_to_project_response(project),
+        company_profile=_to_company_profile_response(company_profile),
+        brand_kit=_to_brand_kit_response(brand_kit),
+        integrations=[_to_integration_summary_response(item) for item in integrations],
+        blueprint_version=blueprint_version,
     )
 
 
@@ -179,13 +239,73 @@ async def bootstrap_workspace(
         db.flush()
         project_created = True
 
+    company_profile, brand_kit, blueprint, integrations = ensure_project_report_context(
+        db=db,
+        tenant=tenant,
+        project=project,
+    )
+
     db.commit()
     db.refresh(tenant)
     db.refresh(project)
+    db.refresh(company_profile)
+    db.refresh(brand_kit)
+
+    workspace_context = _build_workspace_context_response(
+        tenant=tenant,
+        project=project,
+        company_profile=company_profile,
+        brand_kit=brand_kit,
+        integrations=integrations,
+        blueprint_version=blueprint.version,
+    )
 
     return WorkspaceBootstrapResponse(
-        tenant=_to_tenant_response(tenant),
-        project=_to_project_response(project),
+        **workspace_context.model_dump(),
         tenant_created=tenant_created,
         project_created=project_created,
+    )
+
+
+@router.get(
+    "/workspace-context",
+    response_model=WorkspaceContextResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_workspace_context(
+    tenant_id: str = Query(min_length=1),
+    project_id: str = Query(min_length=1),
+    user: CurrentUser = Depends(require_roles(*CATALOG_READ_ROLES)),
+    db: Session = Depends(get_db),
+) -> WorkspaceContextResponse:
+    _ = user
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found.")
+
+    project = db.scalar(
+        select(Project).where(
+            Project.id == project_id,
+            Project.tenant_id == tenant_id,
+        )
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found for tenant.")
+
+    company_profile, brand_kit, blueprint, integrations = ensure_project_report_context(
+        db=db,
+        tenant=tenant,
+        project=project,
+    )
+    db.commit()
+    db.refresh(project)
+    db.refresh(company_profile)
+    db.refresh(brand_kit)
+    return _build_workspace_context_response(
+        tenant=tenant,
+        project=project,
+        company_profile=company_profile,
+        brand_kit=brand_kit,
+        integrations=integrations,
+        blueprint_version=blueprint.version,
     )

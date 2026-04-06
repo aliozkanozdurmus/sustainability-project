@@ -10,10 +10,8 @@ import { Button } from "@/components/ui/button";
 import {
   buildApiHeaders,
   getApiBaseUrl,
-  getInitialWorkspaceContext,
-  persistWorkspaceContext,
-  type WorkspaceContext,
 } from "@/lib/api/client";
+import { useWorkspaceContext } from "@/lib/api/workspace-store";
 
 type RunListItem = {
   run_id: string;
@@ -30,26 +28,9 @@ type RunListResponse = {
   items: RunListItem[];
 };
 
-function useWorkspace(): WorkspaceContext | null {
-  const [workspace] = useState<WorkspaceContext | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-    return getInitialWorkspaceContext();
-  });
-
-  useEffect(() => {
-    if (workspace) {
-      persistWorkspaceContext(workspace);
-    }
-  }, [workspace]);
-
-  return workspace;
-}
-
 export default function DashboardPage() {
   const router = useRouter();
-  const workspace = useWorkspace();
+  const workspace = useWorkspaceContext();
   const [runs, setRuns] = useState<RunListItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

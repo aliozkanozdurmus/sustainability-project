@@ -30,6 +30,8 @@ from app.models.core import (
 )
 from app.api.routes.runs import VERIFIER_VERSION, _persist_verification_artifacts
 from app.orchestration.checkpoint_store import LocalJsonlCheckpointStore
+from app.services.integrations import run_connector_sync
+from app.services.report_context import ensure_project_report_context
 
 
 def _seed_tenant_and_project(db: Session) -> tuple[str, str]:
@@ -46,6 +48,39 @@ def _seed_tenant_and_project(db: Session) -> tuple[str, str]:
     db.add(project)
     db.commit()
     return tenant.id, project.id
+
+
+def _seed_report_factory_context(
+    db: Session,
+    *,
+    tenant_id: str,
+    project_id: str,
+    connector_types: set[str] | None = None,
+) -> tuple[list[str], str, str, str]:
+    tenant = db.get(Tenant, tenant_id)
+    project = db.get(Project, project_id)
+    assert tenant is not None
+    assert project is not None
+
+    company_profile, brand_kit, blueprint, integrations = ensure_project_report_context(
+        db=db,
+        tenant=tenant,
+        project=project,
+    )
+    selected_connector_types: list[str] = []
+    for integration in integrations:
+        if connector_types and integration.connector_type not in connector_types:
+            continue
+        run_connector_sync(db=db, integration=integration)
+        selected_connector_types.append(integration.connector_type)
+
+    db.flush()
+    return (
+        selected_connector_types,
+        company_profile.id,
+        brand_kit.id,
+        blueprint.version,
+    )
 
 
 def _write_local_index(root: Path, index_name: str, rows: dict[str, dict[str, object]]) -> None:
@@ -1068,12 +1103,6 @@ def test_publish_run_blocks_on_missing_citation_and_numeric_artifact(tmp_path: P
     client = TestClient(app)
     original_local_blob_root = settings.local_blob_root
     settings.local_blob_root = str(tmp_path / "storage")
-    original_local_blob_root = settings.local_blob_root
-    settings.local_blob_root = str(tmp_path / "storage")
-    original_local_blob_root = settings.local_blob_root
-    settings.local_blob_root = str(tmp_path / "storage")
-    original_local_blob_root = settings.local_blob_root
-    settings.local_blob_root = str(tmp_path / "storage")
 
     try:
         with TestingSessionLocal() as session:
@@ -1181,13 +1210,22 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
     try:
         with TestingSessionLocal() as session:
             tenant_id, project_id = _seed_tenant_and_project(session)
+            connector_scope, company_profile_id, brand_kit_id, blueprint_version = _seed_report_factory_context(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+            )
 
             report_run = ReportRun(
                 tenant_id=tenant_id,
                 project_id=project_id,
+                company_profile_id=company_profile_id,
+                brand_kit_id=brand_kit_id,
                 status="completed",
                 publish_ready=True,
                 completed_at=datetime.now(timezone.utc),
+                report_blueprint_version=blueprint_version,
+                connector_scope=connector_scope,
             )
             session.add(report_run)
             session.flush()
@@ -1288,10 +1326,14 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
         assert body["blockers"] == []
         assert body["run_attempt"] == 2
         assert body["run_execution_id"] == "exec_publish_2"
+        assert body["package_status"] == "completed"
+        assert body["package_job_id"]
+        assert len(body["artifacts"]) >= 6
         assert body["report_pdf"] is not None
         assert body["report_pdf"]["artifact_type"] == "report_pdf"
         assert body["report_pdf"]["filename"].endswith(".pdf")
         assert body["report_pdf"]["size_bytes"] > 0
+        assert body["report_pdf"]["metadata"]["page_count"] >= 10
 
         download_response = client.get(
             f"/runs/{run_id}/report-pdf",
@@ -1304,17 +1346,19 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
         with pdfplumber.open(BytesIO(download_response.content)) as pdf:
             first_page_text = pdf.pages[0].extract_text() or ""
             full_text = "\n".join((page.extract_text() or "") for page in pdf.pages)
-        assert "Sustainability Report Demo" in first_page_text
-        assert "TSRS2-PUBLISH-SUCCESS" in full_text
-        assert "Citations:" in full_text
+        assert "SÜRDÜRÜLEBİLİRLİK" in first_page_text.upper()
+        assert "İçindekiler" in full_text
+        assert "Çevresel Performans" in full_text
+        assert "Atıf Dizini" in full_text
 
         with TestingSessionLocal() as session:
             report_run = session.get(ReportRun, run_id)
             assert report_run is not None
             assert report_run.status == "published"
+            assert report_run.package_status == "completed"
             artifacts = session.query(ReportArtifact).filter(ReportArtifact.report_run_id == run_id).all()
-            assert len(artifacts) == 1
-            assert artifacts[0].artifact_type == "report_pdf"
+            assert len(artifacts) >= 6
+            assert any(artifact.artifact_type == "report_pdf" for artifact in artifacts)
             events = (
                 session.query(AuditEvent)
                 .filter(
@@ -1447,10 +1491,10 @@ def test_publish_run_records_failure_when_report_pdf_generation_fails(tmp_path: 
             session.commit()
             run_id = report_run.id
 
-        def failing_publish_artifact(*, db, report_run):
-            raise RuntimeError("artifact upload exploded")
+            def failing_publish_artifact(*, db, report_run):
+                raise RuntimeError("artifact upload exploded")
 
-        monkeypatch.setattr("app.api.routes.runs.ensure_report_pdf_artifact", failing_publish_artifact)
+            monkeypatch.setattr("app.api.routes.runs.ensure_report_package", failing_publish_artifact)
 
         response = client.post(
             f"/runs/{run_id}/publish",
@@ -1459,7 +1503,7 @@ def test_publish_run_records_failure_when_report_pdf_generation_fails(tmp_path: 
         )
         assert response.status_code == 500
         detail = response.json()["detail"]
-        assert detail["error_code"] == "REPORT_PDF_GENERATION_FAILED"
+        assert detail["error_code"] == "REPORT_PACKAGE_GENERATION_FAILED"
         assert "artifact upload exploded" in detail["reason"]
 
         with TestingSessionLocal() as session:
@@ -1594,12 +1638,21 @@ def test_publish_run_is_idempotent_when_already_published(tmp_path: Path) -> Non
     try:
         with TestingSessionLocal() as session:
             tenant_id, project_id = _seed_tenant_and_project(session)
+            connector_scope, company_profile_id, brand_kit_id, blueprint_version = _seed_report_factory_context(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+            )
             report_run = ReportRun(
                 tenant_id=tenant_id,
                 project_id=project_id,
+                company_profile_id=company_profile_id,
+                brand_kit_id=brand_kit_id,
                 status="published",
                 publish_ready=True,
                 completed_at=datetime.now(timezone.utc),
+                report_blueprint_version=blueprint_version,
+                connector_scope=connector_scope,
             )
             session.add(report_run)
             session.commit()
@@ -1626,9 +1679,10 @@ def test_publish_run_is_idempotent_when_already_published(tmp_path: Path) -> Non
         second_body = second_response.json()
         assert second_body["report_pdf"] is not None
         assert second_body["report_pdf"]["artifact_id"] == first_body["report_pdf"]["artifact_id"]
+        assert second_body["package_job_id"] == first_body["package_job_id"]
 
         with TestingSessionLocal() as session:
-            assert session.query(ReportArtifact).filter(ReportArtifact.report_run_id == run_id).count() == 1
+            assert session.query(ReportArtifact).filter(ReportArtifact.report_run_id == run_id).count() >= 6
     finally:
         settings.local_blob_root = original_local_blob_root
         app.dependency_overrides.clear()

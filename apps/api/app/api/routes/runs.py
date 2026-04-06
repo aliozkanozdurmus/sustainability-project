@@ -13,14 +13,17 @@ from app.core.settings import settings
 from app.db.session import get_db
 from app.models.core import (
     AuditEvent,
+    BrandKit,
     CalculationRun,
     Claim,
     ClaimCitation,
     Chunk,
+    CompanyProfile,
     Project,
     ReportArtifact,
     ReportRun,
     ReportSection,
+    ReportBlueprint,
     SourceDocument,
     Tenant,
     VerificationResult,
@@ -37,6 +40,7 @@ from app.schemas.runs import (
     RunExecuteResponse,
     RunListItem,
     RunListResponse,
+    RunPackageStatusResponse,
     RunPublishRequest,
     RunPublishResponse,
     RunPublishBlocker,
@@ -44,12 +48,22 @@ from app.schemas.runs import (
     RunTriageItem,
     RunTriageReportResponse,
 )
-from app.services.report_pdf import (
+from app.services.report_context import ensure_project_report_context
+from app.services.report_factory import (
+    ASSUMPTION_REGISTER_ARTIFACT_TYPE,
+    CALCULATION_APPENDIX_ARTIFACT_TYPE,
+    CITATION_INDEX_ARTIFACT_TYPE,
+    COVERAGE_MATRIX_ARTIFACT_TYPE,
     REPORT_PDF_ARTIFACT_TYPE,
-    download_report_artifact_bytes,
-    ensure_report_pdf_artifact,
-    get_report_artifact,
+    VISUAL_MANIFEST_ARTIFACT_TYPE,
+    build_package_status_payload,
+    ensure_report_package,
+    get_report_artifact_by_id,
+    get_report_package,
+    list_run_artifacts,
+    _to_artifact_response_payload,
 )
+from app.services.report_pdf import download_report_artifact_bytes
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 RUN_MUTATION_ROLES = ("admin", "compliance_manager", "analyst")
@@ -67,9 +81,10 @@ def _to_report_artifact_response(artifact: ReportArtifact) -> ReportArtifactResp
         checksum=artifact.checksum,
         created_at_utc=artifact.created_at.isoformat(),
         download_path=(
-            f"/runs/{artifact.report_run_id}/report-pdf"
+            f"/runs/{artifact.report_run_id}/artifacts/{artifact.id}"
             f"?tenant_id={artifact.tenant_id}&project_id={artifact.project_id}"
         ),
+        metadata=artifact.artifact_metadata_json or {},
     )
 
 
@@ -78,10 +93,54 @@ def _get_report_pdf_response(
     db: Session,
     report_run_id: str,
 ) -> ReportArtifactResponse | None:
-    artifact = get_report_artifact(db=db, report_run_id=report_run_id, artifact_type=REPORT_PDF_ARTIFACT_TYPE)
+    artifact = next(
+        (
+            item
+            for item in list_run_artifacts(db=db, report_run_id=report_run_id)
+            if item.artifact_type == REPORT_PDF_ARTIFACT_TYPE
+        ),
+        None,
+    )
     if artifact is None:
         return None
     return _to_report_artifact_response(artifact)
+
+
+def _resolve_report_factory_context(
+    *,
+    db: Session,
+    tenant: Tenant,
+    project: Project,
+    payload: RunCreateRequest,
+) -> tuple[CompanyProfile, BrandKit, ReportBlueprint]:
+    company_profile, brand_kit, blueprint, _ = ensure_project_report_context(
+        db=db,
+        tenant=tenant,
+        project=project,
+    )
+
+    if payload.company_profile_ref:
+        selected_profile = db.get(CompanyProfile, payload.company_profile_ref)
+        if selected_profile is None or selected_profile.project_id != project.id:
+            raise HTTPException(status_code=404, detail="Company profile not found for project.")
+        company_profile = selected_profile
+
+    if payload.brand_kit_ref:
+        selected_brand_kit = db.get(BrandKit, payload.brand_kit_ref)
+        if selected_brand_kit is None or selected_brand_kit.project_id != project.id:
+            raise HTTPException(status_code=404, detail="Brand kit not found for project.")
+        brand_kit = selected_brand_kit
+
+    blueprint_version = payload.report_blueprint_version or settings.report_factory_default_blueprint_version
+    selected_blueprint = db.scalar(
+        select(ReportBlueprint).where(
+            ReportBlueprint.project_id == project.id,
+            ReportBlueprint.version == blueprint_version,
+        )
+    )
+    if selected_blueprint is None:
+        raise HTTPException(status_code=404, detail="Report blueprint not found for project.")
+    return company_profile, brand_kit, selected_blueprint
 
 
 @router.get("", response_model=RunListResponse, status_code=status.HTTP_200_OK)
@@ -172,6 +231,10 @@ async def list_runs(
                 triage_required=triage_required,
                 last_checkpoint_status=last_checkpoint_status,
                 last_checkpoint_at_utc=last_checkpoint_at_utc,
+                package_status=run.package_status,
+                report_quality_score=run.report_quality_score,
+                latest_sync_at_utc=run.latest_sync_at.isoformat() if run.latest_sync_at else None,
+                visual_generation_status=run.visual_generation_status,
                 report_pdf=artifact_map.get(run.id),
             )
         )
@@ -201,6 +264,10 @@ def _build_run_status_response(
         triage_required=triage_required,
         last_checkpoint_status=checkpoint["status"],
         last_checkpoint_at_utc=checkpoint["created_at_utc"],
+        package_status=report_run.package_status,
+        report_quality_score=report_run.report_quality_score,
+        latest_sync_at_utc=report_run.latest_sync_at.isoformat() if report_run.latest_sync_at else None,
+        visual_generation_status=report_run.visual_generation_status,
         report_pdf=_get_report_pdf_response(db=db, report_run_id=report_run.id),
     )
 
@@ -459,7 +526,7 @@ def _record_publish_failure(
         "published": published,
         "run_attempt": run_attempt,
         "run_execution_id": run_execution_id,
-        "error_code": "REPORT_PDF_GENERATION_FAILED",
+        "error_code": "REPORT_PACKAGE_GENERATION_FAILED",
         "reason": str(exc),
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
     }
@@ -828,13 +895,25 @@ async def create_run(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found for tenant.")
 
+    company_profile, brand_kit, blueprint = _resolve_report_factory_context(
+        db=db,
+        tenant=tenant,
+        project=project,
+        payload=payload,
+    )
     now = datetime.now(timezone.utc)
     report_run = ReportRun(
         tenant_id=payload.tenant_id,
         project_id=payload.project_id,
+        company_profile_id=company_profile.id,
+        brand_kit_id=brand_kit.id,
         status="running",
         started_at=now,
         publish_ready=False,
+        report_blueprint_version=blueprint.version,
+        connector_scope=payload.connector_scope or ["sap_odata", "logo_tiger_sql_view", "netsis_rest"],
+        package_status="not_started",
+        visual_generation_status="not_started",
     )
     db.add(report_run)
     db.commit()
@@ -1044,7 +1123,7 @@ async def publish_run(
 
     if report_run.status == "published":
         try:
-            report_pdf = ensure_report_pdf_artifact(db=db, report_run=report_run)
+            package_result = ensure_report_package(db=db, report_run=report_run)
         except Exception as exc:
             _record_publish_failure(
                 db=db,
@@ -1056,6 +1135,10 @@ async def publish_run(
                 exc=exc,
             )
         db.commit()
+        report_pdf = next(
+            (artifact for artifact in package_result.artifacts if artifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE),
+            None,
+        )
         return RunPublishResponse(
             schema_version=PUBLISH_GATE_SCHEMA_VERSION,
             run_id=run_id,
@@ -1066,7 +1149,11 @@ async def publish_run(
             published=True,
             blocked=False,
             blockers=[],
-            report_pdf=_to_report_artifact_response(report_pdf),
+            package_job_id=package_result.package.id,
+            package_status=package_result.package.status,
+            estimated_stage=package_result.package.current_stage,
+            artifacts=[_to_report_artifact_response(artifact) for artifact in package_result.artifacts],
+            report_pdf=_to_report_artifact_response(report_pdf) if report_pdf is not None else None,
             generated_at_utc=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -1099,7 +1186,7 @@ async def publish_run(
         )
 
     try:
-        report_pdf = ensure_report_pdf_artifact(db=db, report_run=report_run)
+        package_result = ensure_report_package(db=db, report_run=report_run)
     except Exception as exc:
         _record_publish_failure(
             db=db,
@@ -1115,7 +1202,12 @@ async def publish_run(
     report_run.publish_ready = True
     if report_run.completed_at is None:
         report_run.completed_at = datetime.now(timezone.utc)
+    report_run.package_status = package_result.package.status
 
+    report_pdf = next(
+        (artifact for artifact in package_result.artifacts if artifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE),
+        None,
+    )
     success_payload = {
         "schema_version": PUBLISH_GATE_SCHEMA_VERSION,
         "run_id": run_id,
@@ -1123,7 +1215,10 @@ async def publish_run(
         "published": True,
         "run_attempt": run_attempt,
         "run_execution_id": run_execution_id,
-        "report_pdf": _to_report_artifact_response(report_pdf).model_dump(),
+        "package_job_id": package_result.package.id,
+        "package_status": package_result.package.status,
+        "artifacts": [_to_report_artifact_response(artifact).model_dump() for artifact in package_result.artifacts],
+        "report_pdf": _to_report_artifact_response(report_pdf).model_dump() if report_pdf is not None else None,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     db.add(
@@ -1149,8 +1244,82 @@ async def publish_run(
         published=True,
         blocked=False,
         blockers=[],
-        report_pdf=_to_report_artifact_response(report_pdf),
+        package_job_id=package_result.package.id,
+        package_status=package_result.package.status,
+        estimated_stage=package_result.package.current_stage,
+        artifacts=[_to_report_artifact_response(artifact) for artifact in package_result.artifacts],
+        report_pdf=_to_report_artifact_response(report_pdf) if report_pdf is not None else None,
         generated_at_utc=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@router.get(
+    "/{run_id}/package-status",
+    response_model=RunPackageStatusResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_run_package_status(
+    run_id: str,
+    tenant_id: str,
+    project_id: str,
+    user: CurrentUser = Depends(require_roles(*RUN_READ_ROLES)),
+    db: Session = Depends(get_db),
+) -> RunPackageStatusResponse:
+    _ = user
+    report_run = db.scalar(
+        select(ReportRun).where(
+            ReportRun.id == run_id,
+            ReportRun.tenant_id == tenant_id,
+            ReportRun.project_id == project_id,
+        )
+    )
+    if report_run is None:
+        raise HTTPException(status_code=404, detail="Run not found for tenant/project.")
+    return RunPackageStatusResponse(**build_package_status_payload(db=db, report_run=report_run))
+
+
+@router.get(
+    "/{run_id}/artifacts/{artifact_id}",
+    status_code=status.HTTP_200_OK,
+)
+async def download_run_artifact(
+    run_id: str,
+    artifact_id: str,
+    tenant_id: str,
+    project_id: str,
+    user: CurrentUser = Depends(require_roles(*RUN_READ_ROLES)),
+    db: Session = Depends(get_db),
+) -> Response:
+    _ = user
+    report_run = db.scalar(
+        select(ReportRun).where(
+            ReportRun.id == run_id,
+            ReportRun.tenant_id == tenant_id,
+            ReportRun.project_id == project_id,
+        )
+    )
+    if report_run is None:
+        raise HTTPException(status_code=404, detail="Run not found for tenant/project.")
+
+    artifact = get_report_artifact_by_id(db=db, report_run_id=report_run.id, artifact_id=artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Artifact not found for run.")
+
+    try:
+        payload = download_report_artifact_bytes(artifact)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not load report artifact. {exc}",
+        ) from exc
+
+    return Response(
+        content=payload,
+        media_type=artifact.content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{artifact.filename}"',
+            "Content-Length": str(len(payload)),
+        },
     )
 
 
@@ -1177,7 +1346,14 @@ async def download_run_report_pdf(
     if report_run is None:
         raise HTTPException(status_code=404, detail="Run not found for tenant/project.")
 
-    artifact = get_report_artifact(db=db, report_run_id=report_run.id, artifact_type=REPORT_PDF_ARTIFACT_TYPE)
+    artifact = next(
+        (
+            item
+            for item in list_run_artifacts(db=db, report_run_id=report_run.id)
+            if item.artifact_type == REPORT_PDF_ARTIFACT_TYPE
+        ),
+        None,
+    )
     if artifact is None:
         raise HTTPException(status_code=404, detail="Published report PDF not found for run.")
 

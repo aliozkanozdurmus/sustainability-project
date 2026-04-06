@@ -11,6 +11,10 @@ export type UserRole =
   | "board_member";
 
 export const WORKSPACE_STORAGE_KEY = "veni_workspace_context_v1";
+export const WORKSPACE_STORAGE_EVENT = "veni-workspace-context-updated";
+
+let cachedWorkspaceRaw: string | null | undefined;
+let cachedWorkspaceValue: WorkspaceContext | null = null;
 
 export function getApiBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_BASE_URL) {
@@ -34,19 +38,28 @@ export function readWorkspaceContext(): WorkspaceContext | null {
     return null;
   }
   const raw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+  if (raw === cachedWorkspaceRaw) {
+    return cachedWorkspaceValue;
+  }
+
+  cachedWorkspaceRaw = raw;
   if (!raw) {
+    cachedWorkspaceValue = null;
     return null;
   }
   try {
     const parsed = JSON.parse(raw) as Partial<WorkspaceContext>;
     if (parsed.tenantId && parsed.projectId) {
-      return {
+      cachedWorkspaceValue = {
         tenantId: parsed.tenantId,
         projectId: parsed.projectId,
       };
+      return cachedWorkspaceValue;
     }
+    cachedWorkspaceValue = null;
     return null;
   } catch {
+    cachedWorkspaceValue = null;
     return null;
   }
 }
@@ -70,7 +83,10 @@ export function persistWorkspaceContext(workspace: WorkspaceContext): void {
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
+  cachedWorkspaceValue = workspace;
+  cachedWorkspaceRaw = JSON.stringify(workspace);
+  window.localStorage.setItem(WORKSPACE_STORAGE_KEY, cachedWorkspaceRaw);
+  window.dispatchEvent(new Event(WORKSPACE_STORAGE_EVENT));
 }
 
 type BuildApiHeadersOptions = {
@@ -99,6 +115,18 @@ export function buildApiHeaders(
 
 export function buildRunReportPdfPath(workspace: WorkspaceContext, runId: string): string {
   return `/runs/${encodeURIComponent(runId)}/report-pdf?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}`;
+}
+
+export function buildRunArtifactPath(
+  workspace: WorkspaceContext,
+  runId: string,
+  artifactId: string,
+): string {
+  return `/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}`;
+}
+
+export function buildRunPackageStatusPath(workspace: WorkspaceContext, runId: string): string {
+  return `/runs/${encodeURIComponent(runId)}/package-status?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}`;
 }
 
 export async function getResponseErrorMessage(response: Response): Promise<string> {

@@ -13,7 +13,7 @@ test("workspace bootstrap UI creates and stores workspace context", async ({ pag
   await page.getByLabel("Currency").fill("TRY");
   await page.getByTestId("workspace-bootstrap-button").click();
 
-  await expect(page.getByTestId("new-report-notice")).toContainText("Workspace ready.");
+  await expect(page.getByTestId("new-report-notice")).toContainText("Workspace hazır.");
   await expect(page.getByTestId("workspace-context-status")).toContainText("tenant_id=");
   await expect(page.getByTestId("workspace-context-status")).toContainText("project_id=");
 

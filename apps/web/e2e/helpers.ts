@@ -14,6 +14,20 @@ type CreateRunOptions = {
   boardApprover?: string;
 };
 
+type WorkspaceContextResponse = {
+  company_profile: {
+    id: string;
+  };
+  brand_kit: {
+    id: string;
+  };
+  integrations: Array<{
+    id: string;
+    connector_type: string;
+  }>;
+  blueprint_version: string;
+};
+
 function resolveApiBaseUrl(): string {
   return process.env.PLAYWRIGHT_API_BASE_URL ?? "http://127.0.0.1:8000";
 }
@@ -102,12 +116,13 @@ export async function createRunViaWizard(
   await page.goto("/reports/new");
 
   await expect(page.getByTestId("workspace-context-status")).toContainText(workspace.tenantId);
+  await expect(page.getByTestId("factory-context-panel")).toBeVisible({ timeout: 30_000 });
   await page.getByLabel("Legal Entity Name").fill(
     options.legalName ?? "Playwright Demo Sustainability Holding",
   );
   await page.getByLabel("Tax / Registry ID").fill(options.taxId ?? "TR-9876543210");
-  await page.getByRole("button", { name: "Next", exact: true }).click();
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByTestId("wizard-next-button").click();
+  await page.getByTestId("wizard-next-button").click();
   await page
     .getByLabel("Sustainability Owner")
     .fill(options.sustainabilityOwner ?? "Playwright Sustainability Owner");
@@ -134,6 +149,31 @@ export async function createPublishedRunViaApi(
   workspace: WorkspaceContext = getSeededWorkspace(),
 ): Promise<string> {
   const apiBaseUrl = resolveApiBaseUrl();
+  const workspaceContextResponse = await request.get(`${apiBaseUrl}/catalog/workspace-context`, {
+    headers: buildApiHeaders(workspace.tenantId),
+    params: {
+      tenant_id: workspace.tenantId,
+      project_id: workspace.projectId,
+    },
+  });
+  expect(workspaceContextResponse.ok()).toBeTruthy();
+  const workspaceContext = (await workspaceContextResponse.json()) as WorkspaceContextResponse;
+  const connectorIds = workspaceContext.integrations.map((integration) => integration.id);
+  const connectorScope = workspaceContext.integrations.map(
+    (integration) => integration.connector_type,
+  );
+  expect(connectorIds.length).toBeGreaterThan(0);
+
+  const syncResponse = await request.post(`${apiBaseUrl}/integrations/sync`, {
+    headers: buildApiHeaders(workspace.tenantId),
+    data: {
+      tenant_id: workspace.tenantId,
+      project_id: workspace.projectId,
+      connector_ids: connectorIds,
+    },
+  });
+  expect(syncResponse.ok()).toBeTruthy();
+
   const createResponse = await request.post(`${apiBaseUrl}/runs`, {
     headers: buildApiHeaders(workspace.tenantId),
     data: {
@@ -141,6 +181,10 @@ export async function createPublishedRunViaApi(
       project_id: workspace.projectId,
       framework_target: ["TSRS1", "TSRS2", "CSRD"],
       active_reg_pack_version: "core-pack-v1",
+      report_blueprint_version: workspaceContext.blueprint_version,
+      company_profile_ref: workspaceContext.company_profile.id,
+      brand_kit_ref: workspaceContext.brand_kit.id,
+      connector_scope: connectorScope,
       scope_decision: {
         reporting_year: "2025",
         include_scope3: true,

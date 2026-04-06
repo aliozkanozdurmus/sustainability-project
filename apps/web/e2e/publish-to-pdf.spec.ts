@@ -27,7 +27,7 @@ test("happy-path publish-to-pdf", async ({ page }, testInfo) => {
 
   await page.getByTestId(`run-${runId}-publish`).click();
   await expect(page.getByTestId("approval-center-notice")).toContainText(
-    `Run ${runId} published. PDF is ready for download.`,
+    `Run ${runId} publish edildi.`,
   );
   await expect(page.getByTestId(`run-${runId}-status`)).toHaveText("published");
   await expect(page.getByTestId(`run-${runId}-download-pdf`)).toBeVisible();

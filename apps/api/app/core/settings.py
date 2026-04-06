@@ -30,6 +30,7 @@ def _is_local_dev_database_host(database_url: str) -> bool:
 class Settings(BaseSettings):
     allowed_chat_model: ClassVar[str] = "gpt-5.2"
     allowed_embedding_model: ClassVar[str] = "text-embedding-3-large"
+    allowed_image_models: ClassVar[set[str]] = {"gpt-image-1", "gpt-image-1.5"}
     repo_root: ClassVar[Path] = Path(__file__).resolve().parents[4]
 
     app_name: str = Field(default="Veni AI Sustainability Cockpit API")
@@ -68,9 +69,13 @@ class Settings(BaseSettings):
     azure_openai_api_version: str = Field(default="2024-10-21")
     azure_openai_chat_deployment: str = Field(default="gpt-5.2")
     azure_openai_embedding_deployment: str = Field(default="text-embedding-3-large")
+    azure_openai_image_deployment: str | None = Field(default=None)
+    azure_openai_image_fallback_deployment: str | None = Field(default=None)
     verifier_mode: str = Field(default="heuristic")
     verifier_pass_threshold: float = Field(default=0.55)
     verifier_unsure_threshold: float = Field(default=0.3)
+    report_factory_default_blueprint_version: str = Field(default="brandable-tr-v1")
+    report_factory_default_locale: str = Field(default="tr-TR")
 
     @model_validator(mode="after")
     def enforce_locked_ai_and_database_policy(self) -> "Settings":
@@ -82,6 +87,23 @@ class Settings(BaseSettings):
         if self.azure_openai_embedding_deployment.strip() != self.allowed_embedding_model:
             raise ValueError(
                 f"AZURE_OPENAI_EMBEDDING_DEPLOYMENT must be '{self.allowed_embedding_model}'."
+            )
+
+        if (
+            self.azure_openai_image_deployment
+            and self.azure_openai_image_deployment.strip() not in self.allowed_image_models
+        ):
+            raise ValueError(
+                "AZURE_OPENAI_IMAGE_DEPLOYMENT must be one of "
+                f"{sorted(self.allowed_image_models)}."
+            )
+        if (
+            self.azure_openai_image_fallback_deployment
+            and self.azure_openai_image_fallback_deployment.strip() not in self.allowed_image_models
+        ):
+            raise ValueError(
+                "AZURE_OPENAI_IMAGE_FALLBACK_DEPLOYMENT must be one of "
+                f"{sorted(self.allowed_image_models)}."
             )
 
         normalized_database_url = self.database_url.strip().lower()

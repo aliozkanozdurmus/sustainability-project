@@ -10,6 +10,10 @@ class RunCreateRequest(BaseModel):
     project_id: str = Field(min_length=1)
     framework_target: list[str] = Field(min_length=1)
     active_reg_pack_version: str | None = None
+    report_blueprint_version: str | None = None
+    company_profile_ref: str | None = None
+    brand_kit_ref: str | None = None
+    connector_scope: list[str] = Field(default_factory=list)
     scope_decision: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -40,6 +44,10 @@ class RunStatusResponse(BaseModel):
     triage_required: bool
     last_checkpoint_status: str
     last_checkpoint_at_utc: str
+    package_status: str
+    report_quality_score: float | None = None
+    latest_sync_at_utc: str | None = None
+    visual_generation_status: str
     report_pdf: "ReportArtifactResponse | None" = None
 
 
@@ -54,6 +62,10 @@ class RunListItem(BaseModel):
     triage_required: bool
     last_checkpoint_status: str
     last_checkpoint_at_utc: str | None
+    package_status: str
+    report_quality_score: float | None = None
+    latest_sync_at_utc: str | None = None
+    visual_generation_status: str
     report_pdf: ReportArtifactResponse | None = None
 
 
@@ -101,6 +113,26 @@ class ReportArtifactResponse(BaseModel):
     checksum: str
     created_at_utc: str
     download_path: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReportPackageStageResponse(BaseModel):
+    stage: str
+    status: str
+    at_utc: str
+    detail: str | None = None
+
+
+class RunPackageStatusResponse(BaseModel):
+    run_id: str
+    package_job_id: str | None = None
+    package_status: str
+    current_stage: str | None = None
+    report_quality_score: float | None = None
+    visual_generation_status: str
+    artifacts: list[ReportArtifactResponse] = Field(default_factory=list)
+    stage_history: list[ReportPackageStageResponse] = Field(default_factory=list)
+    generated_at_utc: str
 
 
 class RunPublishBlocker(BaseModel):
@@ -120,6 +152,10 @@ class RunPublishResponse(BaseModel):
     published: bool
     blocked: bool
     blockers: list[RunPublishBlocker] = Field(default_factory=list)
+    package_job_id: str | None = None
+    package_status: str
+    estimated_stage: str | None = None
+    artifacts: list[ReportArtifactResponse] = Field(default_factory=list)
     report_pdf: ReportArtifactResponse | None = None
     generated_at_utc: str
 

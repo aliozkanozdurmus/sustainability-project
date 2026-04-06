@@ -94,6 +94,75 @@ class Project(IdTimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
 
 
+class CompanyProfile(IdTimestampMixin, Base):
+    __tablename__ = "company_profiles"
+
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    legal_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    sector: Mapped[str | None] = mapped_column(String(128))
+    headquarters: Mapped[str | None] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text)
+    founded_year: Mapped[int | None] = mapped_column(Integer)
+    employee_count: Mapped[int | None] = mapped_column(Integer)
+    ceo_name: Mapped[str | None] = mapped_column(String(200))
+    ceo_message: Mapped[str | None] = mapped_column(Text)
+    sustainability_approach: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON)
+
+
+class BrandKit(IdTimestampMixin, Base):
+    __tablename__ = "brand_kits"
+
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    brand_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    logo_uri: Mapped[str | None] = mapped_column(String(1024))
+    primary_color: Mapped[str] = mapped_column(String(16), default="#f07f13", nullable=False)
+    secondary_color: Mapped[str] = mapped_column(String(16), default="#155e75", nullable=False)
+    accent_color: Mapped[str] = mapped_column(String(16), default="#7ab648", nullable=False)
+    font_family_headings: Mapped[str] = mapped_column(String(128), default="Segoe UI", nullable=False)
+    font_family_body: Mapped[str] = mapped_column(String(128), default="Segoe UI", nullable=False)
+    tone_name: Mapped[str] = mapped_column(String(64), default="kurumsal", nullable=False)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON)
+
+
+class ReportBlueprint(IdTimestampMixin, Base):
+    __tablename__ = "report_blueprints"
+    __table_args__ = (UniqueConstraint("project_id", "version"),)
+
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    locale: Mapped[str] = mapped_column(String(32), default="tr-TR", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    blueprint_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+
 class ReportingFrameworkVersion(IdTimestampMixin, Base):
     __tablename__ = "reporting_framework_versions"
     __table_args__ = (UniqueConstraint("framework_code", "version"),)
@@ -206,10 +275,28 @@ class ReportRun(IdTimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         index=True,
     )
+    company_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("company_profiles.id", ondelete="SET NULL"),
+        index=True,
+    )
+    brand_kit_id: Mapped[str | None] = mapped_column(
+        ForeignKey("brand_kits.id", ondelete="SET NULL"),
+        index=True,
+    )
     status: Mapped[str] = mapped_column(String(32), default="created", nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     publish_ready: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    report_blueprint_version: Mapped[str | None] = mapped_column(String(64))
+    connector_scope: Mapped[list[str] | None] = mapped_column(JSON)
+    package_status: Mapped[str] = mapped_column(String(32), default="not_started", nullable=False)
+    report_quality_score: Mapped[float | None] = mapped_column(Float)
+    latest_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    visual_generation_status: Mapped[str] = mapped_column(
+        String(32),
+        default="not_started",
+        nullable=False,
+    )
 
 
 class ReportArtifact(IdTimestampMixin, Base):
@@ -231,12 +318,210 @@ class ReportArtifact(IdTimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    report_package_id: Mapped[str | None] = mapped_column(
+        ForeignKey("report_packages.id", ondelete="SET NULL"),
+        index=True,
+    )
     artifact_type: Mapped[str] = mapped_column(String(64), nullable=False)
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     content_type: Mapped[str] = mapped_column(String(128), nullable=False)
     storage_uri: Mapped[str] = mapped_column(String(1024), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     checksum: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    artifact_metadata_json: Mapped[dict | None] = mapped_column(JSON)
+
+
+class IntegrationConfig(IdTimestampMixin, Base):
+    __tablename__ = "integration_configs"
+
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    connector_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    auth_mode: Mapped[str] = mapped_column(String(64), default="configured", nullable=False)
+    base_url: Mapped[str | None] = mapped_column(String(1024))
+    resource_path: Mapped[str | None] = mapped_column(String(512))
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    mapping_version: Mapped[str] = mapped_column(String(64), default="v1", nullable=False)
+    connection_payload: Mapped[dict | None] = mapped_column(JSON)
+    sample_payload: Mapped[dict | None] = mapped_column(JSON)
+    last_cursor: Mapped[str | None] = mapped_column(String(255))
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ConnectorSyncJob(IdTimestampMixin, Base):
+    __tablename__ = "connector_sync_jobs"
+
+    integration_config_id: Mapped[str] = mapped_column(
+        ForeignKey("integration_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
+    current_stage: Mapped[str] = mapped_column(String(64), default="queued", nullable=False)
+    record_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    inserted_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cursor_before: Mapped[str | None] = mapped_column(String(255))
+    cursor_after: Mapped[str | None] = mapped_column(String(255))
+    diagnostics_json: Mapped[dict | None] = mapped_column(JSON)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CanonicalFact(IdTimestampMixin, Base):
+    __tablename__ = "canonical_facts"
+    __table_args__ = (
+        UniqueConstraint("integration_config_id", "metric_code", "period_key", "source_record_id"),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    integration_config_id: Mapped[str] = mapped_column(
+        ForeignKey("integration_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sync_job_id: Mapped[str | None] = mapped_column(
+        ForeignKey("connector_sync_jobs.id", ondelete="SET NULL"),
+        index=True,
+    )
+    metric_code: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    metric_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    period_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    unit: Mapped[str | None] = mapped_column(String(64))
+    value_numeric: Mapped[float | None] = mapped_column(Float)
+    value_text: Mapped[str | None] = mapped_column(Text)
+    source_system: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_record_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner: Mapped[str | None] = mapped_column(String(128))
+    freshness_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confidence_score: Mapped[float | None] = mapped_column(Float)
+    trace_ref: Mapped[str | None] = mapped_column(String(1024))
+    metadata_json: Mapped[dict | None] = mapped_column(JSON)
+
+
+class KpiSnapshot(IdTimestampMixin, Base):
+    __tablename__ = "kpi_snapshots"
+    __table_args__ = (UniqueConstraint("report_run_id", "metric_code", "period_key"),)
+
+    report_run_id: Mapped[str] = mapped_column(
+        ForeignKey("report_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    metric_code: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    metric_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    period_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    unit: Mapped[str | None] = mapped_column(String(64))
+    value_numeric: Mapped[float | None] = mapped_column(Float)
+    value_text: Mapped[str | None] = mapped_column(Text)
+    quality_grade: Mapped[str] = mapped_column(String(16), default="A-", nullable=False)
+    freshness_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_fact_ids: Mapped[list[str] | None] = mapped_column(JSON)
+    snapshot_metadata_json: Mapped[dict | None] = mapped_column(JSON)
+
+
+class ReportPackage(IdTimestampMixin, Base):
+    __tablename__ = "report_packages"
+    __table_args__ = (UniqueConstraint("report_run_id"),)
+
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    report_run_id: Mapped[str] = mapped_column(
+        ForeignKey("report_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    latest_sync_job_id: Mapped[str | None] = mapped_column(
+        ForeignKey("connector_sync_jobs.id", ondelete="SET NULL"),
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
+    current_stage: Mapped[str] = mapped_column(String(64), default="queued", nullable=False)
+    stage_history_json: Mapped[list[dict] | None] = mapped_column(JSON)
+    package_quality_score: Mapped[float | None] = mapped_column(Float)
+    summary_json: Mapped[dict | None] = mapped_column(JSON)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class ReportVisualAsset(IdTimestampMixin, Base):
+    __tablename__ = "report_visual_assets"
+    __table_args__ = (UniqueConstraint("report_package_id", "visual_slot"),)
+
+    report_package_id: Mapped[str] = mapped_column(
+        ForeignKey("report_packages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    visual_slot: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    decorative_ai_generated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    prompt_text: Mapped[str | None] = mapped_column(Text)
+    storage_uri: Mapped[str | None] = mapped_column(String(1024))
+    content_type: Mapped[str | None] = mapped_column(String(128))
+    checksum: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    alt_text: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON)
 
 
 class RetrievalRun(IdTimestampMixin, Base):

@@ -8,11 +8,9 @@ import { Button } from "@/components/ui/button";
 import {
   buildApiHeaders,
   getApiBaseUrl,
-  getInitialWorkspaceContext,
   parseJsonOrThrow,
-  persistWorkspaceContext,
-  type WorkspaceContext,
 } from "@/lib/api/client";
+import { useWorkspaceContext } from "@/lib/api/workspace-store";
 
 type DocumentUploadResponse = {
   document_id: string;
@@ -68,25 +66,8 @@ type IndexStatusResponse = {
   error_message: string | null;
 };
 
-function useWorkspace(): WorkspaceContext | null {
-  const [workspace] = useState<WorkspaceContext | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-    return getInitialWorkspaceContext();
-  });
-
-  useEffect(() => {
-    if (workspace) {
-      persistWorkspaceContext(workspace);
-    }
-  }, [workspace]);
-
-  return workspace;
-}
-
 export default function EvidenceCenterPage() {
-  const workspace = useWorkspace();
+  const workspace = useWorkspaceContext();
 
   const [documentType, setDocumentType] = useState("energy_invoice");
   const [issuedAt, setIssuedAt] = useState("");
