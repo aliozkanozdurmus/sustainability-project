@@ -38,7 +38,11 @@ class CompanyProfileResponse(BaseModel):
     legal_name: str
     sector: str | None = None
     headquarters: str | None = None
+    description: str | None = None
     ceo_name: str | None = None
+    ceo_message: str | None = None
+    sustainability_approach: str | None = None
+    is_configured: bool = False
 
 
 class BrandKitResponse(BaseModel):
@@ -46,11 +50,26 @@ class BrandKitResponse(BaseModel):
     tenant_id: str
     project_id: str
     brand_name: str
+    logo_uri: str | None = None
     primary_color: str
     secondary_color: str
     accent_color: str
     font_family_headings: str
     font_family_body: str
+    tone_name: str | None = None
+    is_configured: bool = False
+
+
+class FactoryReadinessBlockerResponse(BaseModel):
+    code: str
+    message: str
+
+
+class FactoryReadinessResponse(BaseModel):
+    is_ready: bool
+    company_profile_ready: bool
+    brand_kit_ready: bool
+    blockers: list[FactoryReadinessBlockerResponse] = Field(default_factory=list)
 
 
 class IntegrationConfigSummaryResponse(BaseModel):
@@ -77,6 +96,8 @@ class WorkspaceBootstrapRequest(BaseModel):
     project_name: str = Field(min_length=2, max_length=200)
     project_code: str = Field(min_length=2, max_length=64)
     reporting_currency: str = Field(default="TRY", min_length=1, max_length=8)
+    company_profile: dict[str, str] = Field(default_factory=dict)
+    brand_kit: dict[str, str] = Field(default_factory=dict)
 
 
 class WorkspaceContextResponse(BaseModel):
@@ -86,6 +107,7 @@ class WorkspaceContextResponse(BaseModel):
     brand_kit: BrandKitResponse
     integrations: list[IntegrationConfigSummaryResponse]
     blueprint_version: str
+    factory_readiness: FactoryReadinessResponse
 
 
 class WorkspaceBootstrapResponse(WorkspaceContextResponse):

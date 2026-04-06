@@ -50,7 +50,7 @@ from app.models.core import (
     VerificationResult,
 )
 from app.services.blob_storage import BlobStorageService, get_blob_storage_service
-from app.services.report_context import ensure_project_report_context
+from app.services.report_context import build_report_factory_readiness, ensure_project_report_context
 
 
 REPORT_PDF_ARTIFACT_TYPE = "report_pdf"
@@ -160,6 +160,12 @@ class RenderedPdf:
     page_count: int
 
 
+@dataclass(frozen=True)
+class ImageGenerationPayload:
+    payload: bytes
+    deployment: str
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -170,6 +176,16 @@ def _safe_slug(value: str) -> str:
 
 def _to_data_uri(payload: bytes, content_type: str) -> str:
     return f"data:{content_type};base64,{b64encode(payload).decode('ascii')}"
+
+
+def _resolve_brand_mark_uri(tenant: Tenant, brand: BrandKit) -> str:
+    logo_uri = (brand.logo_uri or "").strip()
+    if logo_uri:
+        return logo_uri
+    return _to_data_uri(
+        _build_monogram_svg(tenant.name, brand).encode("utf-8"),
+        "image/svg+xml",
+    )
 
 
 def _artifact_filename(project: Project, report_run: ReportRun, artifact_type: str, extension: str) -> str:
@@ -416,7 +432,7 @@ def _build_monogram_svg(brand_name: str, brand: BrandKit) -> str:
     """.strip()
 
 
-def _call_image_generation(prompt: str) -> bytes | None:
+def _call_image_generation(prompt: str) -> ImageGenerationPayload | None:
     endpoint = settings.azure_openai_endpoint
     api_key = settings.azure_openai_api_key
     deployments = [
@@ -440,6 +456,7 @@ def _call_image_generation(prompt: str) -> bytes | None:
                 "prompt": prompt,
                 "size": "1536x1024",
                 "quality": "high",
+                "output_format": "png",
             }
         ).encode("utf-8")
         req = request.Request(
@@ -454,10 +471,16 @@ def _call_image_generation(prompt: str) -> bytes | None:
             parsed = json.loads(raw)
             item = parsed.get("data", [{}])[0]
             if isinstance(item, dict) and item.get("b64_json"):
-                return b64decode(item["b64_json"])
+                return ImageGenerationPayload(
+                    payload=b64decode(item["b64_json"]),
+                    deployment=deployment,
+                )
             if isinstance(item, dict) and item.get("url"):
                 with request.urlopen(item["url"], timeout=45) as image_response:
-                    return image_response.read()
+                    return ImageGenerationPayload(
+                        payload=image_response.read(),
+                        deployment=deployment,
+                    )
         except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError, ValueError):
             continue
     return None
@@ -905,9 +928,10 @@ def _upload_visual_image_asset(
     title: str,
     prompt_text: str,
 ) -> tuple[bytes, str]:
-    payload = _call_image_generation(prompt_text)
-    source_type = "azure_openai_image" if payload is not None else "deterministic_editorial_fallback"
-    decorative_ai_generated = payload is not None
+    generation = _call_image_generation(prompt_text)
+    source_type = "azure_openai_image" if generation is not None else "deterministic_editorial_fallback"
+    decorative_ai_generated = generation is not None
+    payload = generation.payload if generation is not None else None
     if payload is None:
         payload = _generate_fallback_visual(
             title=title,
@@ -935,7 +959,14 @@ def _upload_visual_image_asset(
         checksum=checksum,
         status="completed",
         alt_text=title,
-        metadata={"title": title},
+        metadata={
+            "title": title,
+            "visual_slot": visual_slot,
+            "image_policy": "decorative_only_no_claims",
+            "generation_mode": "azure_openai_image" if generation is not None else "deterministic_fallback",
+            "azure_openai_deployment": generation.deployment if generation is not None else None,
+            "fallback_reason": None if generation is not None else "image_generation_unavailable_or_failed",
+        },
     )
     return payload, "image/png"
 
@@ -970,7 +1001,11 @@ def _upload_visual_svg_asset(
         checksum=checksum,
         status="completed",
         alt_text=title,
-        metadata={"title": title},
+        metadata={
+            "title": title,
+            "visual_slot": visual_slot,
+            "image_policy": "deterministic_data_visualization",
+        },
     )
     return payload, "image/svg+xml"
 
@@ -1842,36 +1877,11 @@ def _resolve_layout_variant(section_code: str) -> str:
     return "standard"
 
 
-def _render_html_report(
+def _prepare_section_payloads_for_render(
     *,
-    tenant: Tenant,
-    project: Project,
-    company_profile: CompanyProfile,
-    brand: BrandKit,
     section_payloads: list[dict[str, Any]],
-    visual_data_uris: dict[str, str],
-    citations: list[dict[str, Any]],
-    calculations: list[dict[str, Any]],
-    assumptions: list[str],
+    company_profile: CompanyProfile,
 ) -> str:
-    appendix_start_page = 3 + (len(section_payloads) * 2)
-    template_path = Path(__file__).with_name("report_factory_template.html.jinja")
-    template = Template(template_path.read_text(encoding="utf-8"))
-    toc_cards = _build_toc_cards(section_payloads, appendix_start_page)
-    for card in toc_cards:
-        for line in card["lines"]:
-            if line["label"] == "Atıf ve hesaplama ekleri":
-                line["anchor"] = "APPENDIX"
-            else:
-                line["anchor"] = next(
-                    (
-                        section["section_code"]
-                        for section in section_payloads
-                        if section["title"] == line["label"]
-                    ),
-                    "APPENDIX",
-                )
-
     reporting_year = max(
         (
             metric["period_key"]
@@ -1904,6 +1914,43 @@ def _render_html_report(
         section["hero_caption"] = _build_hero_caption(section, company_profile)
         section["opener_page_number"] = 3 + ((index - 1) * 2)
         section["data_page_number"] = section["opener_page_number"] + 1
+    return reporting_year
+
+
+def _render_html_report(
+    *,
+    tenant: Tenant,
+    project: Project,
+    company_profile: CompanyProfile,
+    brand: BrandKit,
+    section_payloads: list[dict[str, Any]],
+    visual_data_uris: dict[str, str],
+    citations: list[dict[str, Any]],
+    calculations: list[dict[str, Any]],
+    assumptions: list[str],
+) -> str:
+    appendix_start_page = 3 + (len(section_payloads) * 2)
+    template_path = Path(__file__).with_name("report_factory_template.html.jinja")
+    template = Template(template_path.read_text(encoding="utf-8"))
+    toc_cards = _build_toc_cards(section_payloads, appendix_start_page)
+    for card in toc_cards:
+        for line in card["lines"]:
+            if line["label"] == "Atıf ve hesaplama ekleri":
+                line["anchor"] = "APPENDIX"
+            else:
+                line["anchor"] = next(
+                    (
+                        section["section_code"]
+                        for section in section_payloads
+                        if section["title"] == line["label"]
+                    ),
+                    "APPENDIX",
+                )
+
+    reporting_year = _prepare_section_payloads_for_render(
+        section_payloads=section_payloads,
+        company_profile=company_profile,
+    )
 
     cover_metrics = _build_cover_metrics(
         company_profile=company_profile,
@@ -1930,10 +1977,7 @@ def _render_html_report(
         citation_chunks=citation_chunks,
         calculation_chunks=calculation_chunks,
         assumptions=assumptions,
-        monogram_data_uri=_to_data_uri(
-            _build_monogram_svg(tenant.name, brand).encode("utf-8"),
-            "image/svg+xml",
-        ),
+        brand_mark_uri=_resolve_brand_mark_uri(tenant, brand),
         reporting_year=reporting_year,
         cover_metrics=cover_metrics,
         profile_facts=profile_facts,
@@ -1982,6 +2026,32 @@ def _set_fill_alpha_safe(pdf: pdf_canvas.Canvas, alpha: float) -> None:
         pass
 
 
+def _draw_round_box(
+    pdf: pdf_canvas.Canvas,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    radius: float,
+    fill_color: colors.Color,
+    stroke_color: colors.Color | None = None,
+    stroke_width: float = 1,
+    fill_alpha: float | None = None,
+) -> None:
+    pdf.saveState()
+    if fill_alpha is not None:
+        _set_fill_alpha_safe(pdf, fill_alpha)
+    pdf.setFillColor(fill_color)
+    if stroke_color is not None:
+        pdf.setStrokeColor(stroke_color)
+        pdf.setLineWidth(stroke_width)
+        pdf.roundRect(x, y, width, height, radius, fill=1, stroke=1)
+    else:
+        pdf.roundRect(x, y, width, height, radius, fill=1, stroke=0)
+    pdf.restoreState()
+
+
 def _draw_cover_page(
     pdf: pdf_canvas.Canvas,
     *,
@@ -1990,18 +2060,34 @@ def _draw_cover_page(
     company_profile: CompanyProfile,
     brand: BrandKit,
     hero_bytes: bytes,
+    reporting_year: str,
+    cover_metrics: list[dict[str, str]],
     heading_font: str,
     body_font: str,
 ) -> None:
     primary = _hex_color(brand.primary_color, "#f07f13")
-    pdf.setFillColor(primary)
-    pdf.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=1, stroke=0)
-    pdf.drawImage(ImageReader(BytesIO(hero_bytes)), 350, 0, width=PAGE_WIDTH - 350, height=PAGE_HEIGHT, mask="auto")
-    pdf.saveState()
-    _set_fill_alpha_safe(pdf, 0.88)
-    pdf.setFillColor(primary)
-    pdf.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=1, stroke=0)
-    pdf.restoreState()
+    secondary = _hex_color(brand.secondary_color, "#0c4a6e")
+    pdf.drawImage(ImageReader(BytesIO(hero_bytes)), 0, 0, width=PAGE_WIDTH, height=PAGE_HEIGHT, mask="auto")
+    _draw_round_box(
+        pdf,
+        x=0,
+        y=0,
+        width=PAGE_WIDTH * 0.5,
+        height=PAGE_HEIGHT,
+        radius=0,
+        fill_color=colors.HexColor("#081726"),
+        fill_alpha=0.82,
+    )
+    _draw_round_box(
+        pdf,
+        x=PAGE_WIDTH * 0.5,
+        y=0,
+        width=PAGE_WIDTH * 0.5,
+        height=PAGE_HEIGHT,
+        radius=0,
+        fill_color=primary,
+        fill_alpha=0.16,
+    )
 
     pdf.setFillColor(colors.white)
     pdf.setFont(heading_font, 20)
@@ -2009,7 +2095,7 @@ def _draw_cover_page(
     pdf.setFont(heading_font, 34)
     pdf.drawString(42, PAGE_HEIGHT - 132, "SÜRDÜRÜLEBİLİRLİK")
     pdf.drawString(42, PAGE_HEIGHT - 176, "RAPORU")
-    pdf.drawString(268, PAGE_HEIGHT - 176, "— 2025")
+    pdf.drawString(268, PAGE_HEIGHT - 176, f"— {reporting_year}")
 
     body_style = ParagraphStyle(
         "cover-body",
@@ -2029,7 +2115,7 @@ def _draw_cover_page(
         width=280,
         style=body_style,
     )
-    _draw_paragraph(
+    current_y = _draw_paragraph(
         pdf,
         text=company_profile.sustainability_approach or company_profile.description or "",
         x=42,
@@ -2038,9 +2124,66 @@ def _draw_cover_page(
         style=body_style,
     )
 
-    pdf.setFont(body_font, 12)
-    pdf.drawString(42, 56, project.name)
-    pdf.drawString(42, 38, company_profile.headquarters or "Türkiye")
+    chip_width = 158
+    chip_height = 62
+    chip_y = 54
+    for index, item in enumerate(cover_metrics[:4]):
+        x = 42 + ((index % 2) * (chip_width + 12))
+        y = chip_y + ((1 - (index // 2)) * (chip_height + 12))
+        _draw_round_box(
+            pdf,
+            x=x,
+            y=y,
+            width=chip_width,
+            height=chip_height,
+            radius=18,
+            fill_color=colors.white,
+            fill_alpha=0.12,
+            stroke_color=colors.white,
+        )
+        pdf.setFillColor(colors.white)
+        pdf.setFont(body_font, 8)
+        pdf.drawString(x + 14, y + chip_height - 18, str(item["label"]).upper()[:22])
+        pdf.setFont(heading_font, 12)
+        pdf.drawString(x + 14, y + 20, str(item["value"])[:24])
+
+    card_x = PAGE_WIDTH - 280
+    card_y = 52
+    _draw_round_box(
+        pdf,
+        x=card_x,
+        y=card_y,
+        width=238,
+        height=126,
+        radius=24,
+        fill_color=secondary,
+        fill_alpha=0.62,
+        stroke_color=colors.white,
+    )
+    pdf.setFillColor(colors.white)
+    pdf.setFont(heading_font, 14)
+    pdf.drawString(card_x + 18, card_y + 96, "Factory Çerçevesi")
+    factory_style = ParagraphStyle(
+        "cover-factory",
+        fontName=body_font,
+        fontSize=10,
+        leading=14,
+        textColor=colors.white,
+    )
+    _draw_paragraph(
+        pdf,
+        text=(
+            "Sync, normalize, write, verify ve controlled publish adımları "
+            "tek pakette korunur."
+        ),
+        x=card_x + 18,
+        y_top=card_y + 80,
+        width=200,
+        style=factory_style,
+    )
+    pdf.setFont(body_font, 11)
+    pdf.drawString(42, 26, project.name)
+    pdf.drawString(42, 12, company_profile.headquarters or "Türkiye")
     pdf.showPage()
 
 
@@ -2139,12 +2282,19 @@ def _draw_section_opener_page(
     body_font: str,
 ) -> None:
     pdf.drawImage(ImageReader(BytesIO(hero_bytes)), 0, 0, width=PAGE_WIDTH, height=PAGE_HEIGHT, mask="auto")
-    pdf.saveState()
-    _set_fill_alpha_safe(pdf, 0.84)
-    pdf.setFillColor(_hex_color(brand.primary_color, "#f07f13"))
-    pdf.rect(0, 0, PAGE_WIDTH * 0.55, PAGE_HEIGHT, fill=1, stroke=0)
-    pdf.restoreState()
+    _draw_round_box(
+        pdf,
+        x=0,
+        y=0,
+        width=PAGE_WIDTH * 0.56,
+        height=PAGE_HEIGHT,
+        radius=0,
+        fill_color=_hex_color(brand.primary_color, "#f07f13"),
+        fill_alpha=0.82,
+    )
     pdf.setFillColor(colors.white)
+    pdf.setFont(body_font, 11)
+    pdf.drawString(52, PAGE_HEIGHT - 54, str(section.get("group_title", "Bölüm")).upper())
     pdf.setFont(heading_font, 34)
     pdf.drawString(52, PAGE_HEIGHT - 100, str(section["title"]))
     opener_style = ParagraphStyle(
@@ -2162,6 +2312,53 @@ def _draw_section_opener_page(
         width=320,
         style=opener_style,
     )
+    chip_x = 52
+    chip_y = PAGE_HEIGHT - 250
+    chips = [
+        f"{len(section.get('metric_rows', []))} KPI satırı",
+        f"{int(section.get('claim_count', 0))} PASS iddia",
+    ]
+    if section.get("freshness_label"):
+        chips.append(str(section["freshness_label"]))
+    if section.get("source_labels"):
+        chips.append(", ".join(section["source_labels"][:2]))
+    for index, chip in enumerate(chips[:4]):
+        _draw_round_box(
+            pdf,
+            x=chip_x,
+            y=chip_y - (index * 34),
+            width=228,
+            height=24,
+            radius=12,
+            fill_color=colors.white,
+            fill_alpha=0.14,
+            stroke_color=colors.white,
+        )
+        pdf.setFillColor(colors.white)
+        pdf.setFont(body_font, 9)
+        pdf.drawString(chip_x + 12, chip_y - (index * 34) + 8, chip[:44])
+
+    card_x = PAGE_WIDTH - 310
+    card_y = 72
+    _draw_round_box(
+        pdf,
+        x=card_x,
+        y=card_y,
+        width=258,
+        height=170,
+        radius=24,
+        fill_color=colors.white,
+        fill_alpha=0.12,
+        stroke_color=colors.white,
+    )
+    pdf.setFillColor(colors.white)
+    pdf.setFont(heading_font, 15)
+    pdf.drawString(card_x + 18, card_y + 140, "Bölüm Çerçevesi")
+    pdf.setFont(body_font, 11)
+    line_y = card_y + 116
+    for line in section.get("opener_lines", [])[:4]:
+        pdf.drawString(card_x + 18, line_y, f"• {str(line)[:38]}")
+        line_y -= 24
     pdf.showPage()
 
 
@@ -2169,34 +2366,42 @@ def _draw_section_data_page(
     pdf: pdf_canvas.Canvas,
     *,
     section: dict[str, Any],
+    company_profile: CompanyProfile,
     brand: BrandKit,
     hero_bytes: bytes,
+    profile_facts: list[dict[str, str]],
     heading_font: str,
     body_font: str,
 ) -> None:
     pdf.setFillColor(colors.white)
     pdf.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=1, stroke=0)
-    pdf.setFillColor(_hex_color(brand.primary_color, "#f07f13"))
+    pdf.setFillColor(_hex_color(section.get("group_color", brand.primary_color), "#f07f13"))
     pdf.setFont(heading_font, 26)
     pdf.drawString(36, PAGE_HEIGHT - 48, str(section["title"]))
 
-    metrics = section["metrics"][:4]
+    metrics = section.get("metric_rows", [])[:4]
     for index, metric in enumerate(metrics):
         x = 36 + (index * 195)
         y = PAGE_HEIGHT - 154
-        pdf.setFillColor(colors.HexColor("#f8fbfc"))
-        pdf.roundRect(x, y, 176, 88, 18, fill=1, stroke=0)
-        pdf.setStrokeColor(colors.HexColor("#dbe7ec"))
-        pdf.roundRect(x, y, 176, 88, 18, fill=0, stroke=1)
+        _draw_round_box(
+            pdf,
+            x=x,
+            y=y,
+            width=176,
+            height=88,
+            radius=18,
+            fill_color=colors.HexColor("#f8fbfc"),
+            stroke_color=colors.HexColor("#dbe7ec"),
+        )
         pdf.setFillColor(colors.HexColor("#61788c"))
         pdf.setFont(body_font, 8)
-        pdf.drawString(x + 14, y + 68, str(metric["metric_code"]))
+        pdf.drawString(x + 14, y + 68, str(metric.get("code", ""))[:24])
         pdf.setFillColor(_hex_color(brand.secondary_color, "#0c4a6e"))
         pdf.setFont(heading_font, 18)
-        pdf.drawString(x + 14, y + 40, str(metric["display_value"]))
+        pdf.drawString(x + 14, y + 40, str(metric.get("value", "-"))[:18])
         pdf.setFillColor(colors.HexColor("#243b53"))
         pdf.setFont(body_font, 10)
-        pdf.drawString(x + 14, y + 18, str(metric["metric_name"])[:28])
+        pdf.drawString(x + 14, y + 18, str(metric.get("name", ""))[:28])
 
     summary_style = ParagraphStyle(
         "summary",
@@ -2213,20 +2418,51 @@ def _draw_section_data_page(
         textColor=colors.HexColor("#243b53"),
     )
 
-    pdf.setFillColor(colors.HexColor("#f8fbfc"))
-    pdf.roundRect(36, 96, 450, 264, 24, fill=1, stroke=0)
-    pdf.setStrokeColor(colors.HexColor("#dbe7ec"))
-    pdf.roundRect(36, 96, 450, 264, 24, fill=0, stroke=1)
-    current_y = PAGE_HEIGHT - 194
-    current_y = _draw_paragraph(
+    _draw_round_box(
         pdf,
-        text=str(section["summary"]),
-        x=56,
-        y_top=current_y,
-        width=410,
-        style=summary_style,
-    ) - 12
-    for item in section["highlights"][:4]:
+        x=36,
+        y=96,
+        width=450,
+        height=264,
+        radius=24,
+        fill_color=colors.HexColor("#f8fbfc"),
+        stroke_color=colors.HexColor("#dbe7ec"),
+    )
+    current_y = PAGE_HEIGHT - 194
+    story_paragraphs = section.get("story_paragraphs", []) or [str(section["summary"])]
+    if str(section.get("layout_variant", "")) == "message":
+        pdf.setFont(heading_font, 18)
+        pdf.setFillColor(colors.HexColor("#13293d"))
+        pdf.drawString(56, current_y, "Yönetim Perspektifi")
+        current_y -= 24
+        current_y = _draw_paragraph(
+            pdf,
+            text=story_paragraphs[0],
+            x=56,
+            y_top=current_y,
+            width=410,
+            style=ParagraphStyle(
+                "quote",
+                fontName=heading_font,
+                fontSize=16,
+                leading=24,
+                textColor=colors.HexColor("#13293d"),
+            ),
+        ) - 10
+        pdf.setFillColor(colors.HexColor("#5b7084"))
+        pdf.setFont(body_font, 10)
+        pdf.drawString(56, current_y, str(company_profile.ceo_name or "Kurumsal Liderlik"))
+        current_y -= 18
+    for paragraph in story_paragraphs[:3]:
+        current_y = _draw_paragraph(
+            pdf,
+            text=str(paragraph),
+            x=56,
+            y_top=current_y,
+            width=410,
+            style=summary_style,
+        ) - 10
+    for item in section.get("evidence_points", [])[:3]:
         current_y = _draw_paragraph(
             pdf,
             text=f"- {item}",
@@ -2249,18 +2485,30 @@ def _draw_section_data_page(
     )
 
     pdf.drawImage(ImageReader(BytesIO(hero_bytes)), 522, 196, width=264, height=164, mask="auto")
-    pdf.setFillColor(colors.HexColor("#f8fbfc"))
-    pdf.roundRect(522, 96, 264, 84, 20, fill=1, stroke=0)
-    pdf.setStrokeColor(colors.HexColor("#dbe7ec"))
-    pdf.roundRect(522, 96, 264, 84, 20, fill=0, stroke=1)
+    _draw_round_box(
+        pdf,
+        x=522,
+        y=96,
+        width=264,
+        height=84,
+        radius=20,
+        fill_color=colors.HexColor("#f8fbfc"),
+        stroke_color=colors.HexColor("#dbe7ec"),
+    )
     pdf.setFillColor(_hex_color(brand.secondary_color, "#0c4a6e"))
     pdf.setFont(heading_font, 13)
-    pdf.drawString(540, 154, "Kanıt ve İzlenebilirlik")
+    panel_title = "Kurumsal Profil Özeti" if section.get("layout_variant") == "profile" else "Kanıt ve İzlenebilirlik"
+    pdf.drawString(540, 154, panel_title)
     sidebar_y = 136
     pdf.setFont(body_font, 10)
     pdf.setFillColor(colors.HexColor("#243b53"))
-    for item in section["claims"][:3]:
-        pdf.drawString(540, sidebar_y, f"• {item[:36]}")
+    sidebar_items: list[str]
+    if section.get("layout_variant") == "profile":
+        sidebar_items = [f"{item['label']}: {item['value']}" for item in profile_facts[:3]]
+    else:
+        sidebar_items = list(section.get("insight_chips", [])[:3] or section.get("claims", [])[:3])
+    for item in sidebar_items:
+        pdf.drawString(540, sidebar_y, f"• {str(item)[:36]}")
         sidebar_y -= 18
     pdf.showPage()
 
@@ -2331,6 +2579,18 @@ def _render_reportlab_pdf(
     pdf.setAuthor("Veni AI Sustainability Cockpit")
     pdf.setSubject(f"{project.name} sürdürülebilirlik raporu")
     pdf.setCreator(tenant.name)
+    reporting_year = _prepare_section_payloads_for_render(
+        section_payloads=section_payloads,
+        company_profile=company_profile,
+    )
+    cover_metrics = _build_cover_metrics(
+        company_profile=company_profile,
+        section_payloads=section_payloads,
+    )
+    profile_facts = _build_profile_facts(
+        company_profile=company_profile,
+        section_payloads=section_payloads,
+    )
 
     cover_hero = visual_data.get("cover_hero")
     cover_bytes = (
@@ -2350,6 +2610,8 @@ def _render_reportlab_pdf(
         company_profile=company_profile,
         brand=brand,
         hero_bytes=cover_bytes,
+        reporting_year=reporting_year,
+        cover_metrics=cover_metrics,
         heading_font=heading_font,
         body_font=body_font,
     )
@@ -2378,8 +2640,10 @@ def _render_reportlab_pdf(
         _draw_section_data_page(
             pdf,
             section=section,
+            company_profile=company_profile,
             brand=brand,
             hero_bytes=hero_bytes,
+            profile_facts=profile_facts,
             heading_font=heading_font,
             body_font=body_font,
         )
@@ -2692,6 +2956,16 @@ def ensure_report_package(
         tenant=tenant,
         project=project,
     )
+    readiness = build_report_factory_readiness(
+        company_profile=company_profile,
+        brand_kit=brand,
+    )
+    if not readiness["is_ready"]:
+        blocker_summary = "; ".join(blocker["message"] for blocker in readiness["blockers"])
+        raise ReportPackageGenerationError(
+            "Report factory context hazir degil. "
+            f"{blocker_summary}"
+        )
     blob = blob_storage or get_blob_storage_service()
     package = get_report_package(db=db, report_run_id=report_run.id)
     if package is None:
@@ -2893,6 +3167,7 @@ def ensure_report_package(
                 "storage_uri": row.storage_uri,
                 "status": row.status,
                 "content_type": row.content_type,
+                "metadata": row.metadata_json or {},
             }
             for row in db.scalars(
                 select(ReportVisualAsset).where(ReportVisualAsset.report_package_id == package.id)

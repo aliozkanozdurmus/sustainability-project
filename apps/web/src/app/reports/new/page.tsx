@@ -54,13 +54,25 @@ type WorkspaceContextResponse = {
   company_profile: {
     id: string;
     legal_name: string;
+    sector: string | null;
+    headquarters: string | null;
+    description: string | null;
+    ceo_name: string | null;
+    ceo_message: string | null;
+    sustainability_approach: string | null;
+    is_configured: boolean;
   };
   brand_kit: {
     id: string;
     brand_name: string;
+    logo_uri: string | null;
     primary_color: string;
     secondary_color: string;
     accent_color: string;
+    font_family_headings: string;
+    font_family_body: string;
+    tone_name: string | null;
+    is_configured: boolean;
   };
   integrations: Array<{
     id: string;
@@ -69,6 +81,15 @@ type WorkspaceContextResponse = {
     status: string;
   }>;
   blueprint_version: string;
+  factory_readiness: {
+    is_ready: boolean;
+    company_profile_ready: boolean;
+    brand_kit_ready: boolean;
+    blockers: Array<{
+      code: string;
+      message: string;
+    }>;
+  };
 };
 
 type WorkspaceBootstrapResponse = WorkspaceContextResponse & {
@@ -91,6 +112,25 @@ type FactoryContext = {
     displayName: string;
     status: string;
   }>;
+  readiness: WorkspaceContextResponse["factory_readiness"];
+};
+
+type WorkspaceSetupState = {
+  legalName: string;
+  sector: string;
+  headquarters: string;
+  description: string;
+  ceoName: string;
+  ceoMessage: string;
+  sustainabilityApproach: string;
+  brandName: string;
+  logoUri: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  headingFont: string;
+  bodyFont: string;
+  toneName: string;
 };
 
 const STEP_TITLES = [
@@ -109,6 +149,24 @@ const INITIAL_STATE: WizardState = {
   sustainabilityOwner: "",
   boardApprover: "",
   approvalSlaDays: "5",
+};
+
+const INITIAL_WORKSPACE_SETUP: WorkspaceSetupState = {
+  legalName: "",
+  sector: "",
+  headquarters: "",
+  description: "",
+  ceoName: "",
+  ceoMessage: "",
+  sustainabilityApproach: "",
+  brandName: "",
+  logoUri: "",
+  primaryColor: "#f07f13",
+  secondaryColor: "#0c4a6e",
+  accentColor: "#7ab648",
+  headingFont: "Segoe UI Semibold",
+  bodyFont: "Segoe UI",
+  toneName: "kurumsal-guvenilir",
 };
 
 function resolveFrameworkTargets(form: WizardState): string[] {
@@ -182,6 +240,7 @@ export default function NewReportPage() {
   const [workspaceProjectName, setWorkspaceProjectName] = useState("");
   const [workspaceProjectCode, setWorkspaceProjectCode] = useState("");
   const [workspaceCurrency, setWorkspaceCurrency] = useState("TRY");
+  const [workspaceSetup, setWorkspaceSetup] = useState<WorkspaceSetupState>(INITIAL_WORKSPACE_SETUP);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [contextBusy, setContextBusy] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -224,6 +283,24 @@ export default function NewReportPage() {
           displayName: item.display_name,
           status: item.status,
         })),
+        readiness: payload.factory_readiness,
+      });
+      setWorkspaceSetup({
+        legalName: payload.company_profile.legal_name ?? "",
+        sector: payload.company_profile.sector ?? "",
+        headquarters: payload.company_profile.headquarters ?? "",
+        description: payload.company_profile.description ?? "",
+        ceoName: payload.company_profile.ceo_name ?? "",
+        ceoMessage: payload.company_profile.ceo_message ?? "",
+        sustainabilityApproach: payload.company_profile.sustainability_approach ?? "",
+        brandName: payload.brand_kit.brand_name ?? "",
+        logoUri: payload.brand_kit.logo_uri ?? "",
+        primaryColor: payload.brand_kit.primary_color,
+        secondaryColor: payload.brand_kit.secondary_color,
+        accentColor: payload.brand_kit.accent_color,
+        headingFont: payload.brand_kit.font_family_headings,
+        bodyFont: payload.brand_kit.font_family_body,
+        toneName: payload.brand_kit.tone_name ?? "",
       });
       setConnectorScope(payload.integrations.map((item) => item.connector_type));
       setForm((prev) => ({
@@ -297,6 +374,7 @@ export default function NewReportPage() {
     canSubmit &&
     Boolean(workspace) &&
     Boolean(factoryContext) &&
+    Boolean(factoryContext?.readiness.is_ready) &&
     !contextBusy;
 
   async function handleBootstrapWorkspace() {
@@ -325,12 +403,33 @@ export default function NewReportPage() {
           project_name: workspaceProjectName.trim(),
           project_code: workspaceProjectCode.trim(),
           reporting_currency: workspaceCurrency.trim().toUpperCase(),
+          company_profile: {
+            legal_name: workspaceSetup.legalName.trim(),
+            sector: workspaceSetup.sector.trim(),
+            headquarters: workspaceSetup.headquarters.trim(),
+            description: workspaceSetup.description.trim(),
+            ceo_name: workspaceSetup.ceoName.trim(),
+            ceo_message: workspaceSetup.ceoMessage.trim(),
+            sustainability_approach: workspaceSetup.sustainabilityApproach.trim(),
+          },
+          brand_kit: {
+            brand_name: workspaceSetup.brandName.trim(),
+            logo_uri: workspaceSetup.logoUri.trim(),
+            primary_color: workspaceSetup.primaryColor.trim(),
+            secondary_color: workspaceSetup.secondaryColor.trim(),
+            accent_color: workspaceSetup.accentColor.trim(),
+            font_family_headings: workspaceSetup.headingFont.trim(),
+            font_family_body: workspaceSetup.bodyFont.trim(),
+            tone_name: workspaceSetup.toneName.trim(),
+          },
         }),
       });
       const payload = await parseJsonOrThrow<WorkspaceBootstrapResponse>(response);
       applyWorkspaceContext(payload);
       setSubmitNotice(
-        `Workspace hazır. Tenant: ${payload.tenant.slug}, Proje: ${payload.project.code}. Rapor fabrikası bağlamı kuruldu.`,
+        payload.factory_readiness.is_ready
+          ? `Workspace hazır. Tenant: ${payload.tenant.slug}, Proje: ${payload.project.code}. Rapor fabrikası bağlamı kuruldu.`
+          : `Workspace oluşturuldu ancak report factory henüz hazır değil. Eksik alanları tamamla.`,
       );
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Workspace bootstrap failed.");
@@ -349,6 +448,10 @@ export default function NewReportPage() {
     }
     if (!factoryContext) {
       setSubmitError("Devam etmeden önce workspace context yüklenmeli.");
+      return;
+    }
+    if (!factoryContext.readiness.is_ready) {
+      setSubmitError("Brand kit ve company profile readiness blokları temizlenmeden report factory run'i baslatilamaz.");
       return;
     }
     if (!canSubmit) {
@@ -477,6 +580,183 @@ export default function NewReportPage() {
             />
           </label>
         </div>
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          <div className="rounded-2xl border bg-muted/20 p-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Company Profile</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="text-muted-foreground">Tüzel Kişi Adı</span>
+                <input
+                  aria-label="Workspace Legal Name"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.legalName}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, legalName: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Sektör</span>
+                <input
+                  aria-label="Workspace Sector"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.sector}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, sector: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Genel Merkez</span>
+                <input
+                  aria-label="Workspace Headquarters"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.headquarters}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, headquarters: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="text-muted-foreground">Kurum Profili</span>
+                <textarea
+                  aria-label="Workspace Company Description"
+                  className="border-input bg-background min-h-24 w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.description}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, description: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Yönetici Adı</span>
+                <input
+                  aria-label="Workspace CEO Name"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.ceoName}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, ceoName: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Mesaj Tonu / Stil</span>
+                <input
+                  aria-label="Workspace Tone Name"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.toneName}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, toneName: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="text-muted-foreground">Yönetici Mesajı</span>
+                <textarea
+                  aria-label="Workspace CEO Message"
+                  className="border-input bg-background min-h-24 w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.ceoMessage}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, ceoMessage: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="text-muted-foreground">Sürdürülebilirlik Yaklaşımı</span>
+                <textarea
+                  aria-label="Workspace Sustainability Approach"
+                  className="border-input bg-background min-h-24 w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.sustainabilityApproach}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, sustainabilityApproach: event.target.value }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+          <div className="rounded-2xl border bg-muted/20 p-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Brand Kit</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Marka Adı</span>
+                <input
+                  aria-label="Workspace Brand Name"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.brandName}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, brandName: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Logo URI</span>
+                <input
+                  aria-label="Workspace Logo URI"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.logoUri}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, logoUri: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Ana Renk</span>
+                <input
+                  aria-label="Workspace Primary Color"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.primaryColor}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, primaryColor: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Yardımcı Renk</span>
+                <input
+                  aria-label="Workspace Secondary Color"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.secondaryColor}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, secondaryColor: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Vurgu Rengi</span>
+                <input
+                  aria-label="Workspace Accent Color"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.accentColor}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, accentColor: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Başlık Fontu</span>
+                <input
+                  aria-label="Workspace Heading Font"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.headingFont}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, headingFont: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="text-muted-foreground">Gövde Fontu</span>
+                <input
+                  aria-label="Workspace Body Font"
+                  className="border-input bg-background w-full rounded-md border px-3 py-2"
+                  value={workspaceSetup.bodyFont}
+                  onChange={(event) =>
+                    setWorkspaceSetup((prev) => ({ ...prev, bodyFont: event.target.value }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+        </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button
             type="button"
@@ -524,6 +804,21 @@ export default function NewReportPage() {
               <p className="mt-1 text-sm">
                 Provision edilen connector sayısı: <strong>{factoryContext.integrations.length}</strong>
               </p>
+              <div className="mt-3 rounded-xl border border-emerald-500/20 bg-background/80 px-3 py-3 text-sm" data-testid="factory-readiness-panel">
+                <p className="font-medium">
+                  Readiness: {factoryContext.readiness.is_ready ? "hazır" : "bloklu"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Company profile: {factoryContext.readiness.company_profile_ready ? "ok" : "eksik"} | Brand kit: {factoryContext.readiness.brand_kit_ready ? "ok" : "eksik"}
+                </p>
+                {factoryContext.readiness.blockers.length > 0 ? (
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {factoryContext.readiness.blockers.map((blocker) => (
+                      <li key={`${blocker.code}-${blocker.message}`}>{blocker.code}: {blocker.message}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Connector Kapsamı</p>
@@ -749,6 +1044,12 @@ export default function NewReportPage() {
               </Button>
             )}
           </div>
+
+          {factoryContext && !factoryContext.readiness.is_ready ? (
+            <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+              Report run butonu readiness bloklari temizlenene kadar kapali kalir.
+            </p>
+          ) : null}
 
           {submitError ? (
             <div

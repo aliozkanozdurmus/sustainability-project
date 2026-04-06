@@ -30,6 +30,7 @@ from sqlalchemy import select
 
 from app.db.session import SessionLocal
 from app.models.core import Project, Tenant
+from app.services.report_context import apply_report_factory_configuration, ensure_project_report_context
 from seed_demo_evidence import seed_demo_evidence
 
 
@@ -105,18 +106,71 @@ def main() -> int:
         db.refresh(tenant)
         db.refresh(project)
 
-    seed_info = seed_demo_evidence(tenant_id=tenant.id, project_id=project.id)
+        company_profile, brand_kit, _blueprint, _integrations = ensure_project_report_context(
+            db=db,
+            tenant=tenant,
+            project=project,
+        )
+        apply_report_factory_configuration(
+            db=db,
+            company_profile=company_profile,
+            brand_kit=brand_kit,
+            company_profile_payload={
+                "legal_name": project.name,
+                "sector": "Ambalaj ve endustriyel uretim",
+                "headquarters": "Istanbul, Turkiye",
+                "description": (
+                    f"{project.name}, ERP verileri, denetlenebilir evidence paketi ve "
+                    "kontrollu publish akisi ile surdurulebilirlik performansini kurumsal rapora donusturen bir organizasyondur."
+                ),
+                "ceo_name": "Demo Yonetim Ekibi",
+                "ceo_message": (
+                    "Bu rapor, operasyonel veriyi dogrulanmis anlatiya ceviren otomatik rapor fabrikasinin "
+                    "kurumsal taahhut ve ilerleme cercevesini sunar."
+                ),
+                "sustainability_approach": (
+                    "Veri butunlugu, operasyonel verimlilik ve paydas guvenini ayni anda koruyan "
+                    "olculebilir bir surdurulebilirlik yonetim modeli uygulanmaktadir."
+                ),
+            },
+            brand_kit_payload={
+                "brand_name": tenant.name,
+                "logo_uri": (
+                    "data:image/svg+xml;utf8,"
+                    "<svg xmlns='http://www.w3.org/2000/svg' width='320' height='120' viewBox='0 0 320 120'>"
+                    "<rect width='320' height='120' rx='24' fill='%230c4a6e'/>"
+                    "<text x='160' y='72' font-size='42' text-anchor='middle' fill='white' font-family='Segoe UI'>VENI%20AI</text>"
+                    "</svg>"
+                ),
+                "primary_color": "#f07f13",
+                "secondary_color": "#0c4a6e",
+                "accent_color": "#7ab648",
+                "font_family_headings": "Segoe UI Semibold",
+                "font_family_body": "Segoe UI",
+                "tone_name": "kurumsal-guvenilir",
+            },
+        )
+        db.commit()
+
+        tenant_id = tenant.id
+        tenant_slug = tenant.slug
+        tenant_name_value = tenant.name
+        project_id = project.id
+        project_code_value = project.code
+        project_name_value = project.name
+
+    seed_info = seed_demo_evidence(tenant_id=tenant_id, project_id=project_id)
 
     print(
         json.dumps(
             {
-                "tenant_id": tenant.id,
-                "tenant_slug": tenant.slug,
-                "tenant_name": tenant.name,
+                "tenant_id": tenant_id,
+                "tenant_slug": tenant_slug,
+                "tenant_name": tenant_name_value,
                 "tenant_created": tenant_created,
-                "project_id": project.id,
-                "project_code": project.code,
-                "project_name": project.name,
+                "project_id": project_id,
+                "project_code": project_code_value,
+                "project_name": project_name_value,
                 "project_created": project_created,
                 "reporting_currency": reporting_currency,
                 "seeded_documents": seed_info["seeded_documents"],

@@ -9,6 +9,18 @@ ENV PIP_NO_CACHE_DIR=1
 WORKDIR /workspace
 
 RUN python -m pip install --upgrade pip
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libcairo2 \
+        libgdk-pixbuf-2.0-0 \
+        libglib2.0-0 \
+        libharfbuzz-subset0 \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libjpeg62-turbo \
+        libopenjp2-7 \
+        shared-mime-info \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY apps/api/README.md apps/api/README.md
 COPY apps/api/alembic.ini apps/api/alembic.ini

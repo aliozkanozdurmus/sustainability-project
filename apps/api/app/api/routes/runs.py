@@ -48,7 +48,7 @@ from app.schemas.runs import (
     RunTriageItem,
     RunTriageReportResponse,
 )
-from app.services.report_context import ensure_project_report_context
+from app.services.report_context import build_report_factory_readiness, ensure_project_report_context
 from app.services.report_factory import (
     ASSUMPTION_REGISTER_ARTIFACT_TYPE,
     CALCULATION_APPENDIX_ARTIFACT_TYPE,
@@ -141,6 +141,27 @@ def _resolve_report_factory_context(
     )
     if selected_blueprint is None:
         raise HTTPException(status_code=404, detail="Report blueprint not found for project.")
+
+    factory_mode_requested = bool(
+        payload.company_profile_ref
+        or payload.brand_kit_ref
+        or payload.report_blueprint_version
+        or payload.connector_scope
+    )
+    if factory_mode_requested:
+        readiness = build_report_factory_readiness(
+            company_profile=company_profile,
+            brand_kit=brand_kit,
+        )
+        if not readiness["is_ready"]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "REPORT_FACTORY_CONTEXT_INCOMPLETE",
+                    "message": "Brand kit veya company profile eksik. Report factory run'i baslatilamadi.",
+                    **readiness,
+                },
+            )
     return company_profile, brand_kit, selected_blueprint
 
 

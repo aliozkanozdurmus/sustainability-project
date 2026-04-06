@@ -154,6 +154,7 @@ export async function createRunViaWizard(
 
   await expect(page.getByTestId("workspace-context-status")).toContainText(workspace.tenantId);
   await expect(page.getByTestId("factory-context-panel")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("factory-readiness-panel")).toContainText("Readiness: hazır");
   await page.getByLabel("Legal Entity Name").fill(
     options.legalName ?? "Playwright Demo Sustainability Holding",
   );

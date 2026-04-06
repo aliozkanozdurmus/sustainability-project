@@ -33,7 +33,7 @@ from app.api.routes.runs import VERIFIER_VERSION, _persist_verification_artifact
 from app.orchestration.checkpoint_store import LocalJsonlCheckpointStore
 from app.services.job_queue import get_job_queue_service
 from app.services.integrations import run_connector_sync
-from app.services.report_context import ensure_project_report_context
+from app.services.report_context import apply_report_factory_configuration, ensure_project_report_context
 from app.services.report_factory import REPORT_PDF_ARTIFACT_TYPE
 
 
@@ -69,6 +69,30 @@ def _seed_report_factory_context(
         db=db,
         tenant=tenant,
         project=project,
+    )
+    apply_report_factory_configuration(
+        db=db,
+        company_profile=company_profile,
+        brand_kit=brand_kit,
+        company_profile_payload={
+            "legal_name": project.name,
+            "sector": "Ambalaj ve endustriyel uretim",
+            "headquarters": "Istanbul, Turkiye",
+            "description": "Denetlenebilir ESG veri katmanini kurumsal rapora donusturen test sirketi.",
+            "ceo_name": "Test CEO",
+            "ceo_message": "Surdurulebilirlik performansi veri ve yonetisim disipliniyle yonetilir.",
+            "sustainability_approach": "Olculebilir ve izlenebilir raporlama modeli uygulanir.",
+        },
+        brand_kit_payload={
+            "brand_name": tenant.name,
+            "logo_uri": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='80'><rect width='240' height='80' rx='16' fill='%230c4a6e'/><text x='120' y='50' font-size='28' text-anchor='middle' fill='white'>TEST</text></svg>",
+            "primary_color": "#f07f13",
+            "secondary_color": "#0c4a6e",
+            "accent_color": "#7ab648",
+            "font_family_headings": "Segoe UI Semibold",
+            "font_family_body": "Segoe UI",
+            "tone_name": "kurumsal-guvenilir",
+        },
     )
     selected_connector_types: list[str] = []
     for integration in integrations:
@@ -219,6 +243,69 @@ def test_create_run_initializes_report_run_and_checkpoint(tmp_path: Path) -> Non
         assert latest["node"] == "INIT_REQUEST"
         assert latest["state"]["framework_target"] == ["TSRS2", "CSRD"]
         assert latest["state"]["scope_decision"] == {"mode": "one_click"}
+    finally:
+        settings.local_checkpoint_root = original_checkpoint_root
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_create_run_blocks_factory_mode_when_brand_or_profile_is_incomplete(tmp_path: Path) -> None:
+    db_file = tmp_path / "test_runs_factory_context_block.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+
+    checkpoint_root = tmp_path / "checkpoints"
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    original_checkpoint_root = settings.local_checkpoint_root
+    settings.local_checkpoint_root = str(checkpoint_root)
+
+    client = TestClient(app)
+
+    try:
+        with TestingSessionLocal() as session:
+            tenant_id, project_id = _seed_tenant_and_project(session)
+            tenant = session.get(Tenant, tenant_id)
+            project = session.get(Project, project_id)
+            assert tenant is not None
+            assert project is not None
+            company_profile, brand_kit, blueprint, _integrations = ensure_project_report_context(
+                db=session,
+                tenant=tenant,
+                project=project,
+            )
+            company_profile_id = company_profile.id
+            brand_kit_id = brand_kit.id
+            blueprint_version = blueprint.version
+            session.commit()
+
+        response = client.post(
+            "/runs",
+            json={
+                "tenant_id": tenant_id,
+                "project_id": project_id,
+                "framework_target": ["TSRS2", "CSRD"],
+                "report_blueprint_version": blueprint_version,
+                "company_profile_ref": company_profile_id,
+                "brand_kit_ref": brand_kit_id,
+                "connector_scope": ["sap_odata"],
+            },
+            headers={"x-user-role": "analyst"},
+        )
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["error_code"] == "REPORT_FACTORY_CONTEXT_INCOMPLETE"
+        assert detail["is_ready"] is False
+        assert detail["blockers"]
+        assert any(blocker["code"] == "BRAND_KIT_NOT_CONFIRMED" for blocker in detail["blockers"])
     finally:
         settings.local_checkpoint_root = original_checkpoint_root
         app.dependency_overrides.clear()
@@ -1424,6 +1511,11 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
             for artifact in package_status["artifacts"]
             if artifact["artifact_type"] == "report_pdf"
         )
+        visual_manifest_artifact_payload = next(
+            artifact
+            for artifact in package_status["artifacts"]
+            if artifact["artifact_type"] == "visual_manifest"
+        )
 
         download_response = client.get(
             f"/runs/{run_id}/report-pdf",
@@ -1455,6 +1547,16 @@ def test_publish_run_succeeds_when_all_gate_checks_pass(tmp_path: Path) -> None:
             toc_annots = pdf_reader.pages[1].get("/Annots")
             assert toc_annots is not None
             assert len(toc_annots) >= 3
+
+        visual_manifest_download = client.get(
+            visual_manifest_artifact_payload["download_path"],
+            headers={"x-user-role": "analyst"},
+        )
+        assert visual_manifest_download.status_code == 200
+        visual_manifest = json.loads(visual_manifest_download.content.decode("utf-8"))
+        assert visual_manifest
+        assert any(item["metadata"]["image_policy"] == "decorative_only_no_claims" for item in visual_manifest if item["content_type"] == "image/png")
+        assert all("metadata" in item for item in visual_manifest)
 
         with TestingSessionLocal() as session:
             report_run = session.get(ReportRun, run_id)

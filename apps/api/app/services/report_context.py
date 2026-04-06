@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -121,6 +122,27 @@ DEFAULT_CONNECTORS = (
     },
 )
 
+REQUIRED_COMPANY_PROFILE_FIELDS = (
+    ("legal_name", "Kurumsal unvan"),
+    ("sector", "Sektör"),
+    ("headquarters", "Genel merkez"),
+    ("description", "Kurum profili"),
+    ("ceo_name", "Yönetici adı"),
+    ("ceo_message", "Yönetici mesajı"),
+    ("sustainability_approach", "Sürdürülebilirlik yaklaşımı"),
+)
+
+REQUIRED_BRAND_KIT_FIELDS = (
+    ("brand_name", "Marka adı"),
+    ("logo_uri", "Logo"),
+    ("primary_color", "Ana renk"),
+    ("secondary_color", "Yardımcı renk"),
+    ("accent_color", "Vurgu rengi"),
+    ("font_family_headings", "Başlık fontu"),
+    ("font_family_body", "Gövde fontu"),
+    ("tone_name", "Yönetici mesajı tonu"),
+)
+
 
 def _default_company_profile(*, tenant: Tenant, project: Project) -> CompanyProfile:
     return CompanyProfile(
@@ -194,6 +216,138 @@ def _default_connector(*, tenant: Tenant, project: Project, definition: dict[str
         connection_payload={"auto_provisioned": True},
         sample_payload={},
     )
+
+
+def _clean_optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _metadata_flag(metadata: dict[str, Any] | None, key: str) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    return bool(metadata.get(key))
+
+
+def _profile_blockers(company_profile: CompanyProfile) -> list[dict[str, str]]:
+    blockers: list[dict[str, str]] = []
+    if _metadata_flag(company_profile.metadata_json, "auto_provisioned"):
+        blockers.append(
+            {
+                "code": "COMPANY_PROFILE_NOT_CONFIRMED",
+                "message": "Company profile varsayilan bootstrap verisi ile duruyor; run oncesi onayli kurumsal profil girilmeli.",
+            }
+        )
+    for field_name, label in REQUIRED_COMPANY_PROFILE_FIELDS:
+        if _clean_optional_text(getattr(company_profile, field_name, None)) is None:
+            blockers.append(
+                {
+                    "code": "COMPANY_PROFILE_FIELD_MISSING",
+                    "message": f"{label} eksik. Report factory anlatisi bu bilgi olmadan uretilmez.",
+                }
+            )
+    return blockers
+
+
+def _brand_blockers(brand_kit: BrandKit) -> list[dict[str, str]]:
+    blockers: list[dict[str, str]] = []
+    if _metadata_flag(brand_kit.metadata_json, "auto_provisioned"):
+        blockers.append(
+            {
+                "code": "BRAND_KIT_NOT_CONFIRMED",
+                "message": "Brand kit varsayilan bootstrap degerleri ile duruyor; controlled publish oncesi tenant brand kit tanimi gerekli.",
+            }
+        )
+    for field_name, label in REQUIRED_BRAND_KIT_FIELDS:
+        if _clean_optional_text(getattr(brand_kit, field_name, None)) is None:
+            blockers.append(
+                {
+                    "code": "BRAND_KIT_FIELD_MISSING",
+                    "message": f"{label} eksik. Profesyonel PDF kompozisyonu bu alan olmadan calistirilmaz.",
+                }
+            )
+    return blockers
+
+
+def is_company_profile_configured(company_profile: CompanyProfile) -> bool:
+    return len(_profile_blockers(company_profile)) == 0
+
+
+def is_brand_kit_configured(brand_kit: BrandKit) -> bool:
+    return len(_brand_blockers(brand_kit)) == 0
+
+
+def build_report_factory_readiness(
+    *,
+    company_profile: CompanyProfile,
+    brand_kit: BrandKit,
+) -> dict[str, Any]:
+    company_blockers = _profile_blockers(company_profile)
+    brand_blockers = _brand_blockers(brand_kit)
+    blockers = [*company_blockers, *brand_blockers]
+    return {
+        "is_ready": len(blockers) == 0,
+        "company_profile_ready": len(company_blockers) == 0,
+        "brand_kit_ready": len(brand_blockers) == 0,
+        "blockers": blockers,
+    }
+
+
+def apply_report_factory_configuration(
+    *,
+    db: Session,
+    company_profile: CompanyProfile,
+    brand_kit: BrandKit,
+    company_profile_payload: dict[str, Any] | None = None,
+    brand_kit_payload: dict[str, Any] | None = None,
+) -> tuple[CompanyProfile, BrandKit]:
+    if isinstance(company_profile_payload, dict):
+        for field_name in (
+            "legal_name",
+            "sector",
+            "headquarters",
+            "description",
+            "ceo_name",
+            "ceo_message",
+            "sustainability_approach",
+        ):
+            if field_name not in company_profile_payload:
+                continue
+            next_value = _clean_optional_text(company_profile_payload.get(field_name))
+            if next_value is None:
+                continue
+            setattr(company_profile, field_name, next_value)
+        metadata = dict(company_profile.metadata_json or {})
+        metadata["auto_provisioned"] = False
+        metadata["configuration_source"] = "workspace_bootstrap"
+        company_profile.metadata_json = metadata
+
+    if isinstance(brand_kit_payload, dict):
+        for field_name in (
+            "brand_name",
+            "logo_uri",
+            "primary_color",
+            "secondary_color",
+            "accent_color",
+            "font_family_headings",
+            "font_family_body",
+            "tone_name",
+        ):
+            if field_name not in brand_kit_payload:
+                continue
+            next_value = _clean_optional_text(brand_kit_payload.get(field_name))
+            if next_value is None:
+                continue
+            setattr(brand_kit, field_name, next_value)
+        metadata = dict(brand_kit.metadata_json or {})
+        metadata["auto_provisioned"] = False
+        metadata["configuration_source"] = "workspace_bootstrap"
+        brand_kit.metadata_json = metadata
+
+    db.flush()
+    return company_profile, brand_kit
 
 
 def ensure_project_report_context(

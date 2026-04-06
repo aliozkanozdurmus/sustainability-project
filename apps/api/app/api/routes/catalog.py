@@ -11,6 +11,7 @@ from app.schemas.auth import CurrentUser
 from app.schemas.catalog import (
     BrandKitResponse,
     CompanyProfileResponse,
+    FactoryReadinessResponse,
     IntegrationConfigSummaryResponse,
     ProjectCreateRequest,
     ProjectListResponse,
@@ -22,7 +23,13 @@ from app.schemas.catalog import (
     WorkspaceBootstrapResponse,
     WorkspaceContextResponse,
 )
-from app.services.report_context import ensure_project_report_context
+from app.services.report_context import (
+    apply_report_factory_configuration,
+    build_report_factory_readiness,
+    ensure_project_report_context,
+    is_brand_kit_configured,
+    is_company_profile_configured,
+)
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 CATALOG_MUTATION_ROLES = ("admin", "compliance_manager", "analyst")
@@ -57,7 +64,11 @@ def _to_company_profile_response(profile: CompanyProfile) -> CompanyProfileRespo
         legal_name=profile.legal_name,
         sector=profile.sector,
         headquarters=profile.headquarters,
+        description=profile.description,
         ceo_name=profile.ceo_name,
+        ceo_message=profile.ceo_message,
+        sustainability_approach=profile.sustainability_approach,
+        is_configured=is_company_profile_configured(profile),
     )
 
 
@@ -67,11 +78,14 @@ def _to_brand_kit_response(brand_kit: BrandKit) -> BrandKitResponse:
         tenant_id=brand_kit.tenant_id,
         project_id=brand_kit.project_id,
         brand_name=brand_kit.brand_name,
+        logo_uri=brand_kit.logo_uri,
         primary_color=brand_kit.primary_color,
         secondary_color=brand_kit.secondary_color,
         accent_color=brand_kit.accent_color,
         font_family_headings=brand_kit.font_family_headings,
         font_family_body=brand_kit.font_family_body,
+        tone_name=brand_kit.tone_name,
+        is_configured=is_brand_kit_configured(brand_kit),
     )
 
 
@@ -94,6 +108,10 @@ def _build_workspace_context_response(
     integrations: list[IntegrationConfig],
     blueprint_version: str,
 ) -> WorkspaceContextResponse:
+    readiness = build_report_factory_readiness(
+        company_profile=company_profile,
+        brand_kit=brand_kit,
+    )
     return WorkspaceContextResponse(
         tenant=_to_tenant_response(tenant),
         project=_to_project_response(project),
@@ -101,6 +119,7 @@ def _build_workspace_context_response(
         brand_kit=_to_brand_kit_response(brand_kit),
         integrations=[_to_integration_summary_response(item) for item in integrations],
         blueprint_version=blueprint_version,
+        factory_readiness=FactoryReadinessResponse(**readiness),
     )
 
 
@@ -243,6 +262,13 @@ async def bootstrap_workspace(
         db=db,
         tenant=tenant,
         project=project,
+    )
+    company_profile, brand_kit = apply_report_factory_configuration(
+        db=db,
+        company_profile=company_profile,
+        brand_kit=brand_kit,
+        company_profile_payload=payload.company_profile,
+        brand_kit_payload=payload.brand_kit,
     )
 
     db.commit()
