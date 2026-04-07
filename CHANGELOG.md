@@ -11,9 +11,10 @@ Until the first tagged release, `Unreleased` tracks all merged changes since the
 ### Added
 - Root community files for license, contributing guidance, and code of conduct discoverability.
 - README product preview screenshots for the dashboard, report builder, retrieval lab, approval center, and evidence center.
+- README product intro clip support via `output/intro.webm`, plus refreshed screenshot and generated PDF/download assets under `output/`.
 - Multi-service Dockerfiles for the web app, API, and worker.
 - A root `compose.yaml` for a full local development stack with PostgreSQL and Redis.
-- Development and example deployment runbooks under `docs/runbooks`.
+- Development and example deployment runbooks under `docs/runbooks`, including a dedicated E2E workflow runbook for the consolidated Playwright layout.
 - Deterministic report PDF artifact generation, persistence, blob upload/download helpers, and run API support for exposing `report_pdf` outputs.
 - Playwright-based end-to-end smoke coverage in CI, including reusable web E2E helpers, environment scripts, and manual smoke tooling.
 - Report factory foundation across the API, data model, and storage layers, including company profiles, brand kits, report blueprints, report packages, report visual assets, KPI snapshots, and related migrations.
@@ -29,8 +30,12 @@ Until the first tagged release, `Unreleased` tracks all merged changes since the
 - Workspace and report-building UI flows were updated to support report factory, package-aware publishing, and integration-backed context.
 - Integration extraction and normalization were hardened for connector-specific shapes such as `sap_odata`, `logo_tiger_sql_view`, and `netsis_rest`, including cursor handling, key resolution, unit aliases/defaults, and diagnostics.
 - Report package lifecycle handling now explicitly creates, resets, and tracks package records before work is enqueued.
+- Web E2E assets were reorganized under `apps/web/e2e/`, consolidating Playwright specs, runners, environment bootstrap, and configuration into a single documented test surface while removing stale app-local output folders.
+- Contributor-facing documentation now points to the new E2E layout, `--skip-docker` flow, and repository-root artifact locations for smoke evidence.
+- Source files across the API, web, worker, scripts, and tests now include short Turkish responsibility comments to make navigation easier without turning the code into comment-heavy prose.
 
 ### Fixed
 - Publish and packaging errors now record failure state more reliably so broken package attempts do not appear healthy after exceptions.
 - Integration coercion and unit normalization logic now fail less often on inconsistent upstream payloads and provide clearer diagnostics during sync processing.
 - Settings validation and related tests now properly enforce the opt-in local database policy during development.
+- Repository output tracking now preserves the intro video while still ignoring transient Playwright reports, downloads, and test-result folders that should stay local.

@@ -15,11 +15,17 @@ Trust promise:
 - No calculator artifact, no numeric claim.
 - No verifier pass, no publish.
 
+## Product Intro
+
+<video src="./output/intro.webm" controls muted playsinline preload="metadata"></video>
+
+If your README viewer does not render embedded video, open [the intro clip](./output/intro.webm) directly.
+
 ![Veni AI dashboard](./output/playwright/dashboard.png)
 
 | 3 connectors | 9 package stages | 6 tracked artifacts | 17-page preview pack |
 | --- | --- | --- | --- |
-| SAP / OData, Logo Tiger / SQL View, Netsis / REST | `sync -> normalize -> outline -> write -> verify -> charts_images -> compose -> package -> controlled_publish` | `report_pdf`, `visual_manifest`, `citation_index`, `calculation_appendix`, `coverage_matrix`, `assumption_register` | Real preview assets live in `output/pdf/latest`, `output/pdf/generated`, and Playwright download outputs |
+| SAP / OData, Logo Tiger / SQL View, Netsis / REST | `sync -> normalize -> outline -> write -> verify -> charts_images -> compose -> package -> controlled_publish` | `report_pdf`, `visual_manifest`, `citation_index`, `calculation_appendix`, `coverage_matrix`, `assumption_register` | Real preview assets live in `output/pdf/latest`, `output/pdf/generated`, and `output/playwright/downloads/latest` |
 
 ## Report Factory Journey
 
@@ -71,19 +77,19 @@ The screenshots below are current repository assets from `output/playwright/`. S
 
 | 1. New Report | 2. After Execute |
 | --- | --- |
-| ![Manual smoke new report](./output/playwright/manual-smoke/1775466222560/01-new-report.png) | ![Manual smoke after execute](./output/playwright/manual-smoke/1775466222560/02-after-execute.png) |
+| ![Manual smoke new report](./output/playwright/manual-smoke/latest/01-new-report.png) | ![Manual smoke after execute](./output/playwright/manual-smoke/latest/02-after-execute.png) |
 | The operator starts a run with demo workspace data and report context. | The run completes execution and moves into reviewable state. |
 
 | 3. After Approve | 4. After Publish |
 | --- | --- |
-| ![Manual smoke after approve](./output/playwright/manual-smoke/1775466222560/03-after-approve.png) | ![Manual smoke after publish](./output/playwright/manual-smoke/1775466222560/04-after-publish.png) |
+| ![Manual smoke after approve](./output/playwright/manual-smoke/latest/03-after-approve.png) | ![Manual smoke after publish](./output/playwright/manual-smoke/latest/04-after-publish.png) |
 | Review is complete and the run is ready for controlled publish. | Package creation is complete and the final artifact becomes downloadable. |
 
 </details>
 
 ## Generated Report Output
 
-The repository includes real generated report assets, not README mockups. The preview band below is sourced from `output/pdf/latest/`, and the downloadable preview files are stored in `output/pdf/generated/` and `output/playwright/downloads/`.
+The repository includes real generated report assets, not README mockups. The preview band below is sourced from `output/pdf/latest/`, and the downloadable preview files are stored in `output/pdf/generated/` and `output/playwright/downloads/latest/`.
 
 | Cover | Contents | Narrative |
 | --- | --- | --- |
@@ -95,8 +101,8 @@ The repository includes real generated report assets, not README mockups. The pr
 
 Repository PDF assets:
 - [Preview package PDF](./output/pdf/generated/report-factory-preview.pdf) - 17 pages, 1.21 MB.
-- [Manual smoke downloaded PDF](./output/playwright/downloads/1775466222560/641dd25c-66f4-4dd2-b1ef-5aa8423ad923.pdf) - 17 pages, 264.6 KB.
-- [Manual smoke summary](./output/playwright/manual-smoke/1775466222560/manual-smoke-summary.json) - run id, file path, file size, and screenshot evidence.
+- [Manual smoke downloaded PDF](./output/playwright/downloads/latest/manual-smoke-report.pdf) - 24 pages, 758.0 KB.
+- [Manual smoke summary](./output/playwright/manual-smoke/latest/manual-smoke-summary.json) - run id, file path, file size, and screenshot evidence.
 
 ## Connector Matrix
 
@@ -234,6 +240,8 @@ pnpm e2e:manual-smoke
 pnpm contracts:sync
 ```
 
+Playwright automation is organized under `apps/web/e2e/`, with `specs/` for smoke coverage, `scripts/` for environment bootstrap and runners, and repo-root artifacts written to `output/playwright/`.
+
 What the Docker stack brings up:
 - Next.js web app
 - FastAPI API
@@ -244,7 +252,8 @@ What the Docker stack brings up:
 ## Verification Notes
 
 This README is intentionally grounded in current repository behavior:
-- Asset links point to files that already exist under `output/playwright/`, `output/pdf/latest/`, `output/pdf/generated/`, and `output/playwright/downloads/`.
+- Intro video points to `output/intro.webm`.
+- Asset links point to files that already exist under `output/playwright/`, `output/pdf/latest/`, `output/pdf/generated/`, and `output/playwright/downloads/latest/`.
 - Package stage names match the current report factory service exactly.
 - Connector names, delta semantics, and artifact names match the current API and backend services.
 - The old "publish and instantly download PDF" story is intentionally removed in favor of tracked package status and artifact download.
@@ -257,6 +266,7 @@ This README is intentionally grounded in current repository behavior:
 - [AGENTS.md](./AGENTS.md)
 - [Architecture baseline](./docs/architecture/public-baseline.md)
 - [Docker development runbook](./docs/runbooks/docker-development.md)
+- [E2E development runbook](./docs/runbooks/e2e-development.md)
 - [Runtime configuration](./docs/configuration/runtime-configuration.md)
 - [Secrets policy](./docs/security/secrets-policy.md)
 - [Contributing guide](./CONTRIBUTING.md)

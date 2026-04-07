@@ -97,9 +97,21 @@ apps/api/*.sqlite3
 
 # Generated outputs
 output/*
+!output/intro.webm
+!output/pdf/
+output/pdf/*
+!output/pdf/latest/
+!output/pdf/latest/**
+!output/pdf/generated/
+output/pdf/generated/*
+!output/pdf/generated/report-factory-preview.pdf
 !output/playwright/
 !output/playwright/**
-output/playwright/downloads/
-output/playwright/manual-smoke/
+output/playwright/downloads/*
+!output/playwright/downloads/latest/
+!output/playwright/downloads/latest/**
+output/playwright/manual-smoke/*
+!output/playwright/manual-smoke/latest/
+!output/playwright/manual-smoke/latest/**
 output/playwright/report/
 output/playwright/test-results/

@@ -1,0 +1,13 @@
+{
+  "run_id": "22182927-09f0-4c84-bbe7-54418ddfa07c",
+  "tenant_id": "6c78f082-1046-4ba7-bd34-e1361302c8d7",
+  "project_id": "09fc9e44-120f-4a1e-b573-10ac92d9ae1e",
+  "pdf_path": "C:\\project\\sustainability-project\\output\\playwright\\downloads\\latest\\manual-smoke-report.pdf",
+  "pdf_size_bytes": 776172,
+  "screenshots": [
+    "C:\\project\\sustainability-project\\output\\playwright\\manual-smoke\\latest\\01-new-report.png",
+    "C:\\project\\sustainability-project\\output\\playwright\\manual-smoke\\latest\\02-after-execute.png",
+    "C:\\project\\sustainability-project\\output\\playwright\\manual-smoke\\latest\\03-after-approve.png",
+    "C:\\project\\sustainability-project\\output\\playwright\\manual-smoke\\latest\\04-after-publish.png"
+  ]
+}
