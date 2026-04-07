@@ -1,3 +1,5 @@
+# Bu betik, demo ortami icin ornek kanit verilerini sisteme yukler.
+
 from __future__ import annotations
 
 import argparse

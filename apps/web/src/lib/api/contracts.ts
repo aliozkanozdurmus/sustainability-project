@@ -1,3 +1,5 @@
+// Bu API yardimcisi, contracts akisindaki istemci davranisini toplar.
+
 import type { paths } from "@sustainability/shared-types";
 
 export type HealthLiveResponse =

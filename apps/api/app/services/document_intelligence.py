@@ -1,3 +1,5 @@
+# Bu servis, document_intelligence akisindaki uygulama mantigini tek yerde toplar.
+
 from __future__ import annotations
 
 from dataclasses import dataclass

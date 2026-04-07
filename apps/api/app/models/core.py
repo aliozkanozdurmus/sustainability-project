@@ -1,3 +1,5 @@
+# Bu model dosyasi, core alanlarini kalici veri yapisiyla esler.
+
 from __future__ import annotations
 
 from datetime import date, datetime, timezone

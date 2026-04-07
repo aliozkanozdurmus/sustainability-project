@@ -1,3 +1,5 @@
+# Bu orkestrasyon modulu, checkpoint_store adiminin durum akisini yonetir.
+
 from __future__ import annotations
 
 from dataclasses import dataclass

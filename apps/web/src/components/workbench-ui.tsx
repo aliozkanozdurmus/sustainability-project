@@ -1,5 +1,7 @@
 "use client";
 
+// Bu bilesen, workbench ui arayuz parcasini kurar.
+
 import type { HTMLAttributes, ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, CircleDashed } from "lucide-react";
 

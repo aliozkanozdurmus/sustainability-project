@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+
+# Bu betik, depo icindeki kod satiri ozetini hizlica cikarmak icin kullanilir.
+
 """
 Count non-empty lines of code in the repository, skipping vendor and build artifacts.
 """

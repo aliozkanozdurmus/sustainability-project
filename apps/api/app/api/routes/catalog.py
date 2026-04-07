@@ -1,3 +1,5 @@
+# Bu route, catalog uc noktasinin HTTP giris katmanini tanimlar.
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status

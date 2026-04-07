@@ -1,3 +1,5 @@
+# Bu sema dosyasi, catalog icin API veri sozlesmelerini tanimlar.
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field

@@ -1,3 +1,5 @@
+# Bu test dosyasi, runs davranisini dogrular.
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

@@ -1,3 +1,5 @@
+# Bu route, documents uc noktasinin HTTP giris katmanini tanimlar.
+
 from __future__ import annotations
 
 from datetime import datetime

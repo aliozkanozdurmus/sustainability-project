@@ -1,3 +1,5 @@
+# Bu test dosyasi, models davranisini dogrular.
+
 from app.db.base import Base
 import app.models  # noqa: F401
 

@@ -1,3 +1,5 @@
+# Bu sema dosyasi, health icin API veri sozlesmelerini tanimlar.
+
 from pydantic import BaseModel
 
 

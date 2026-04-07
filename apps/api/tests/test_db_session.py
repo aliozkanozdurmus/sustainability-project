@@ -1,3 +1,5 @@
+# Bu test dosyasi, db session davranisini dogrular.
+
 from app.db.session import engine
 
 

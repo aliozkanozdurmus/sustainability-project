@@ -1,3 +1,5 @@
+# Bu sema dosyasi, dashboard icin API veri sozlesmelerini tanimlar.
+
 from __future__ import annotations
 
 from typing import Literal

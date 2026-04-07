@@ -1,3 +1,5 @@
+# Bu servis, report_context akisindaki uygulama mantigini tek yerde toplar.
+
 from __future__ import annotations
 
 from copy import deepcopy

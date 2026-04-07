@@ -1,3 +1,5 @@
+# Bu test dosyasi, integrations davranisini dogrular.
+
 from __future__ import annotations
 
 from sqlalchemy import create_engine

@@ -1,3 +1,5 @@
+// Bu test dosyasi, rbac davranisini dogrular.
+
 import { describe, expect, it } from "vitest";
 
 import { canAccessRoute, getAccessibleRoutes } from "./rbac";

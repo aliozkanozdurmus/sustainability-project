@@ -1,5 +1,7 @@
 "use client";
 
+// Bu sayfa, dashboard ekraninin ana deneyimini kurar.
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {

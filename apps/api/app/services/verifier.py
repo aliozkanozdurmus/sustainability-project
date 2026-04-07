@@ -1,3 +1,5 @@
+# Bu servis, verifier akisindaki uygulama mantigini tek yerde toplar.
+
 from __future__ import annotations
 
 from dataclasses import dataclass

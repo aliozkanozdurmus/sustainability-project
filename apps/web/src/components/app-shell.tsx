@@ -1,5 +1,7 @@
 "use client";
 
+// Bu bilesen, app shell arayuz parcasini kurar.
+
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";

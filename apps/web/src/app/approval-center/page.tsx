@@ -1,5 +1,7 @@
 "use client";
 
+// Bu sayfa, approval-center ekraninin ana deneyimini kurar.
+
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";

@@ -1,3 +1,5 @@
+// Bu temel UI bileseni, button davranisini tasarim sistemiyle hizalar.
+
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"

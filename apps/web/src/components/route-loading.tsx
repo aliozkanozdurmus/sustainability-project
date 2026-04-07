@@ -1,5 +1,7 @@
 "use client";
 
+// Bu bilesen, route loading arayuz parcasini kurar.
+
 import { ShimmerBlock, SurfaceCard } from "@/components/workbench-ui";
 
 export function RouteLoadingFrame() {

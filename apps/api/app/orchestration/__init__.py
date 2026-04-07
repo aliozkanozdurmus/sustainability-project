@@ -1,5 +1,7 @@
 """Workflow orchestration primitives."""
 
+# Bu paket, orchestration katmaninin disa acilan parcalarini toplar.
+
 from app.orchestration.checkpoint_store import (
     CheckpointRecord,
     CheckpointStore,

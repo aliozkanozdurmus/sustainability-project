@@ -1,3 +1,5 @@
+# Bu worker giris noktasi, kuyruk uygulamasini temel baglantilariyla birlikte kurar.
+
 from urllib.parse import urlparse
 
 from arq.connections import RedisSettings

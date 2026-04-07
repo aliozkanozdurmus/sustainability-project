@@ -1,3 +1,5 @@
+// Bu test dosyasi, client davranisini dogrular.
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getApiBaseUrl } from "./client";

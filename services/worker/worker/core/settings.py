@@ -1,3 +1,5 @@
+# Bu worker cekirdek modulu, settings ayarlarini toplar.
+
 from pathlib import Path
 from typing import ClassVar
 from urllib.parse import urlparse

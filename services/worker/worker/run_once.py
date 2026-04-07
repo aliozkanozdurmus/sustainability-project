@@ -1,3 +1,5 @@
+# Bu betik, worker isleyisini tek seferlik yerel denemeler icin calistirir.
+
 import asyncio
 import json
 

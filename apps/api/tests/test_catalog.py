@@ -1,3 +1,5 @@
+# Bu test dosyasi, catalog davranisini dogrular.
+
 from __future__ import annotations
 
 from pathlib import Path

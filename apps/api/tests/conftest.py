@@ -1,3 +1,5 @@
+# Bu test yardimcilari, ortak fixture ve kurulum adimlarini tek yerde toplar.
+
 from pathlib import Path
 import sys
 

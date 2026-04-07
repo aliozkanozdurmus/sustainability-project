@@ -1,3 +1,5 @@
+# Bu route, health uc noktasinin HTTP giris katmanini tanimlar.
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session

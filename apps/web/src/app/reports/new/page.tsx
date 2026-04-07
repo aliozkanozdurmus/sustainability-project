@@ -1,5 +1,7 @@
 "use client";
 
+// Bu sayfa, reports new ekraninin ana deneyimini kurar.
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";

@@ -1,3 +1,5 @@
+# Bu test dosyasi, auth davranisini dogrular.
+
 from fastapi.testclient import TestClient
 
 from app.main import app

@@ -1,3 +1,5 @@
+# Bu veritabani modulu, base icin altyapi kurallarini toplar.
+
 from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase
 

@@ -1,3 +1,5 @@
+# Bu Alembic ortami, migration kosumunun baglanti ve metadata ayarlarini kurar.
+
 from __future__ import annotations
 
 from logging.config import fileConfig

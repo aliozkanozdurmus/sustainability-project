@@ -1,5 +1,7 @@
 "use client";
 
+// Bu API yardimcisi, workspace store akisindaki istemci davranisini toplar.
+
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import {

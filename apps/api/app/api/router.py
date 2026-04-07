@@ -1,3 +1,5 @@
+# Bu router, tum API rotalarini tek bir agac altinda birlestirir.
+
 from fastapi import APIRouter
 
 from app.api.routes.auth import router as auth_router

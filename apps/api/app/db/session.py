@@ -1,3 +1,5 @@
+# Bu veritabani modulu, session icin altyapi kurallarini toplar.
+
 from collections.abc import Generator
 
 from sqlalchemy import create_engine

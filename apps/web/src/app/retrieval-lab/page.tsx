@@ -1,5 +1,7 @@
 "use client";
 
+// Bu sayfa, retrieval-lab ekraninin ana deneyimini kurar.
+
 import { useState } from "react";
 import { Loader2, Search } from "lucide-react";
 

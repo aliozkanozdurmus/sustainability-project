@@ -1,3 +1,5 @@
+# Bu yetkilendirme modulu, roles kararlarini merkezi hale getirir.
+
 from typing import Literal
 
 Role = Literal[

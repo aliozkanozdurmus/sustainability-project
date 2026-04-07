@@ -1,3 +1,5 @@
+# Bu cekirdek modul, settings icin calisma zamani varsayimlarini toplar.
+
 from pathlib import Path
 from typing import ClassVar
 from urllib.parse import urlparse

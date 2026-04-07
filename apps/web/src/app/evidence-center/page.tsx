@@ -1,5 +1,7 @@
 "use client";
 
+// Bu sayfa, evidence-center ekraninin ana deneyimini kurar.
+
 import { useMemo, useState } from "react";
 import { FileUp, Loader2, ScanLine, SearchCheck, Sparkles } from "lucide-react";
 

@@ -1,3 +1,5 @@
+# Bu orkestrasyon modulu, graph_scaffold adiminin durum akisini yonetir.
+
 from __future__ import annotations
 
 from dataclasses import dataclass

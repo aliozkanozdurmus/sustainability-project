@@ -1,3 +1,5 @@
+# Bu test dosyasi, retrieval davranisini dogrular.
+
 from __future__ import annotations
 
 import json

@@ -1,3 +1,5 @@
+# Bu route, auth uc noktasinin HTTP giris katmanini tanimlar.
+
 from fastapi import APIRouter, Depends
 
 from app.auth.dependencies import get_current_user, require_roles

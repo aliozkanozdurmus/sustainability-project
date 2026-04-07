@@ -1,3 +1,5 @@
+# Bu job modulu, kuyruga dusen belge ve paket islerini calistirir.
+
 from __future__ import annotations
 
 import asyncio

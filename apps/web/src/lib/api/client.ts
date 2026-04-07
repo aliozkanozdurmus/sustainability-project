@@ -1,3 +1,5 @@
+// Bu API yardimcisi, client akisindaki istemci davranisini toplar.
+
 export type WorkspaceContext = {
   tenantId: string;
   projectId: string;

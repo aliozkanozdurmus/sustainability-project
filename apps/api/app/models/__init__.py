@@ -1,3 +1,5 @@
+# Bu paket, models katmaninin disa acilan parcalarini toplar.
+
 from app.models.core import (
     AuditEvent,
     BrandKit,

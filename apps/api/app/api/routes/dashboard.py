@@ -1,3 +1,5 @@
+# Bu route, dashboard uc noktasinin HTTP giris katmanini tanimlar.
+
 from __future__ import annotations
 
 from collections import defaultdict

@@ -1,3 +1,5 @@
+# Bu sema dosyasi, auth icin API veri sozlesmelerini tanimlar.
+
 from pydantic import BaseModel, Field
 
 from app.auth.roles import Role

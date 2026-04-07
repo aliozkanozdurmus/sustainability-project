@@ -1,3 +1,5 @@
+# Bu orkestrasyon modulu, executor adiminin durum akisini yonetir.
+
 from __future__ import annotations
 
 from dataclasses import dataclass

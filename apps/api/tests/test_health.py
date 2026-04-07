@@ -1,3 +1,5 @@
+# Bu test dosyasi, health davranisini dogrular.
+
 from fastapi.testclient import TestClient
 
 from app.db.session import get_db

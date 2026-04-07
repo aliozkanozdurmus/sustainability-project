@@ -1,5 +1,7 @@
 "use client";
 
+// Bu bilesen, workbench charts arayuz parcasini kurar.
+
 import dynamic from "next/dynamic";
 
 const ReactECharts = dynamic(async () => (await import("echarts-for-react")).default, {

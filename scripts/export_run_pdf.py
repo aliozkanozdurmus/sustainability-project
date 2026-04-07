@@ -1,3 +1,5 @@
+# Bu betik, secilen run icin uretilen PDF artefaktini disa aktarir.
+
 from __future__ import annotations
 
 import argparse

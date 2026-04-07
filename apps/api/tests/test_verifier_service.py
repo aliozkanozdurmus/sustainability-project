@@ -1,3 +1,5 @@
+# Bu test dosyasi, verifier service davranisini dogrular.
+
 from __future__ import annotations
 
 from app.services.verifier import ClaimInput, verify_claims

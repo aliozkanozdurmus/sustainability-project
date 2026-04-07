@@ -1,3 +1,5 @@
+# Bu servis, report_pdf akisindaki uygulama mantigini tek yerde toplar.
+
 from __future__ import annotations
 
 from collections import defaultdict

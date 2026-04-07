@@ -1,3 +1,5 @@
+# Bu servis, report_factory akisindaki uygulama mantigini tek yerde toplar.
+
 from __future__ import annotations
 
 from base64 import b64decode, b64encode

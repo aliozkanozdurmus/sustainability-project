@@ -1,3 +1,5 @@
+# Bu sema dosyasi, documents icin API veri sozlesmelerini tanimlar.
+
 from datetime import datetime
 
 from pydantic import BaseModel, Field

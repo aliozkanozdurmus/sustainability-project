@@ -1,3 +1,5 @@
+# Bu giris noktasi, API uygulamasini temel bagimliliklariyla birlikte ayaga kaldirir.
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

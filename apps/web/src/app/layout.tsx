@@ -1,3 +1,5 @@
+// Bu layout, uygulamanin ortak kabugunu ve global sarmalayicilarini kurar.
+
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 

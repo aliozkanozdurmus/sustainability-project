@@ -1,3 +1,5 @@
+// Bu yetkilendirme yardimcisi, web tarafindaki RBAC kararlarini tek yerde toplar.
+
 export type AppRole =
   | "admin"
   | "compliance_manager"

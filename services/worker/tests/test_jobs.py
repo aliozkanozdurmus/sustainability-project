@@ -1,3 +1,5 @@
+# Bu test dosyasi, jobs davranisini dogrular.
+
 import pytest
 from arq.worker import Retry
 

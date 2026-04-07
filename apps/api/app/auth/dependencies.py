@@ -1,3 +1,5 @@
+# Bu yetkilendirme modulu, dependencies kararlarini merkezi hale getirir.
+
 from collections.abc import Callable
 
 from fastapi import Depends, Header, HTTPException, status

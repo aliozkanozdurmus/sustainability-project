@@ -1,3 +1,5 @@
+# Bu betik, demo workspace kurulumunu tekrar edilebilir sekilde hazirlar.
+
 from __future__ import annotations
 
 import argparse
