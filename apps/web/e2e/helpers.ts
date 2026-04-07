@@ -1,3 +1,5 @@
+// Bu yardimcilar, web E2E akislari icin ortak Playwright kurulumunu toplar.
+
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
 import { WORKSPACE_STORAGE_KEY } from "../src/lib/api/client";

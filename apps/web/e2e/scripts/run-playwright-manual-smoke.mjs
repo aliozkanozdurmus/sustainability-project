@@ -1,3 +1,5 @@
+// Bu runner, manual smoke akisinda ekran goruntusu ve indirme artefaktlarini uretir.
+
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 

@@ -1,7 +1,9 @@
+// Bu yapilandirma, web E2E kosumunun temel Playwright varsayimlarini belirler.
+
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./specs",
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 2 : 0,
@@ -11,9 +13,9 @@ export default defineConfig({
   },
   reporter: [
     ["list"],
-    ["html", { outputFolder: "../../output/playwright/report", open: "never" }],
+    ["html", { outputFolder: "../../../output/playwright/report", open: "never" }],
   ],
-  outputDir: "../../output/playwright/test-results",
+  outputDir: "../../../output/playwright/test-results",
   use: {
     baseURL: process.env.PLAYWRIGHT_WEB_BASE_URL ?? "http://127.0.0.1:3000",
     acceptDownloads: true,

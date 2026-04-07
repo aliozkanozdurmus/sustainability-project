@@ -46,9 +46,27 @@ docker compose up --build
 docker compose logs -f api
 docker compose logs -f worker
 docker compose exec api pytest tests/test_settings_policy.py -q
+pnpm --filter web e2e -- --skip-docker
+pnpm --filter web e2e:manual-smoke -- --skip-docker
 docker compose down
 docker compose down -v
 ```
+
+## Run E2E Against the Compose Stack
+After the stack is healthy, you can reuse the running containers instead of letting the Playwright runner start Docker again:
+
+```bash
+pnpm --filter web e2e -- --skip-docker
+pnpm --filter web e2e:manual-smoke -- --skip-docker
+```
+
+The web E2E harness lives under `apps/web/e2e/`:
+- `playwright.config.ts` for smoke configuration
+- `specs/` for user-flow coverage
+- `scripts/` for environment bootstrap and manual smoke runners
+- `helpers.ts` for shared workspace seeding and API-assisted setup
+
+Artifacts are written to the repository root under `output/playwright/` so CI uploads and README-linked assets resolve consistently.
 
 ## Reset Local State
 Use this only when you want a clean database and Redis volume:

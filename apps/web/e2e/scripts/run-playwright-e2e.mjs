@@ -1,4 +1,8 @@
+// Bu runner, web E2E suite'inin standart Playwright kosumunu baslatir.
+
 import { buildPlaywrightEnv, preparePlaywrightEnvironment, runCommand, WEB_DIR } from "./playwright-env.mjs";
+
+const PLAYWRIGHT_CONFIG_PATH = "./e2e/playwright.config.ts";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -10,7 +14,7 @@ async function main() {
 
   await runCommand(
     "pnpm",
-    ["exec", "playwright", "test", ...forwardedArgs],
+    ["exec", "playwright", "test", "--config", PLAYWRIGHT_CONFIG_PATH, ...forwardedArgs],
     {
       cwd: WEB_DIR,
       env,

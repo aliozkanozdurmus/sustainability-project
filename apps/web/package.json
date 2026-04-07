@@ -9,8 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "e2e": "node ./scripts/run-playwright-e2e.mjs",
-    "e2e:manual-smoke": "node ./scripts/run-playwright-manual-smoke.mjs"
+    "e2e": "node ./e2e/scripts/run-playwright-e2e.mjs",
+    "e2e:manual-smoke": "node ./e2e/scripts/run-playwright-manual-smoke.mjs"
   },
   "dependencies": {
     "@sustainability/shared-types": "workspace:*",

@@ -1,3 +1,5 @@
+// Bu yardimci, Playwright kosumu oncesi docker ve ortam hazirligini yonetir.
+
 import { constants as fsConstants } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -6,8 +8,8 @@ import { spawn } from "node:child_process";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 
-export const WEB_DIR = path.resolve(scriptDir, "..");
-export const REPO_ROOT = path.resolve(scriptDir, "../../..");
+export const WEB_DIR = path.resolve(scriptDir, "../..");
+export const REPO_ROOT = path.resolve(scriptDir, "../../../..");
 export const PLAYWRIGHT_OUTPUT_ROOT = path.join(REPO_ROOT, "output", "playwright");
 export const PLAYWRIGHT_DOWNLOAD_ROOT = path.join(PLAYWRIGHT_OUTPUT_ROOT, "downloads");
 export const PLAYWRIGHT_MANUAL_ROOT = path.join(PLAYWRIGHT_OUTPUT_ROOT, "manual-smoke");

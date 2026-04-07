@@ -1,6 +1,8 @@
+// Bu E2E senaryosu, workspace bootstrap akisini uctan uca dogrular.
+
 import { expect, test } from "@playwright/test";
 
-import { WORKSPACE_STORAGE_KEY } from "../src/lib/api/client";
+import { WORKSPACE_STORAGE_KEY } from "../../src/lib/api/client";
 
 test("workspace bootstrap UI creates and stores workspace context", async ({ page }) => {
   const suffix = `${Date.now()}`;

@@ -34,6 +34,7 @@ It replaces the internal planning file that was removed before making the projec
 - Worker: Python ARQ worker for OCR and indexing jobs.
 - Data plane: Neon PostgreSQL, Azure Blob Storage, Azure AI Search, Redis.
 - Orchestration: LangGraph-based typed state workflow.
+- Verification: Vitest covers web unit paths, while Playwright smoke and manual-smoke coverage is rooted in `apps/web/e2e/` with shared helpers, dedicated runners, and root-level artifact capture under `output/playwright/`.
 
 ## 6) Package and Dependency Governance
 - Dependency changes require architecture review when they affect runtime policy, traceability, or compliance surfaces.

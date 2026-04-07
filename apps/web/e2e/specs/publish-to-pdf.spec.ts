@@ -1,3 +1,5 @@
+// Bu E2E senaryosu, publish to pdf akisini uctan uca dogrular.
+
 import { expect, test } from "@playwright/test";
 import { stat } from "node:fs/promises";
 
@@ -8,7 +10,7 @@ import {
   primeWorkspaceContext,
   runRow,
   waitForRunRow,
-} from "./helpers";
+} from "../helpers";
 
 test("happy-path publish-to-pdf", async ({ page }, testInfo) => {
   const workspace = getSeededWorkspace();
