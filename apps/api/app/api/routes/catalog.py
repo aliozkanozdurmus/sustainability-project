@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pathlib import PurePath
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_roles
+from app.core.settings import settings
 from app.db.session import get_db
 from app.models.core import BrandKit, CompanyProfile, IntegrationConfig, Project, Tenant
 from app.schemas.auth import CurrentUser
 from app.schemas.catalog import (
+    BrandKitLogoUploadResponse,
     BrandKitResponse,
     CompanyProfileResponse,
     FactoryReadinessResponse,
@@ -38,6 +43,48 @@ from app.services.integrations import get_assigned_agent_status
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 CATALOG_MUTATION_ROLES = ("admin", "compliance_manager", "analyst")
 CATALOG_READ_ROLES = (*CATALOG_MUTATION_ROLES, "auditor_readonly")
+BRAND_LOGO_MAX_SIZE_BYTES = 5 * 1024 * 1024
+BRAND_LOGO_EXTENSION_TO_CONTENT_TYPE = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+}
+BRAND_LOGO_CONTENT_TYPE_TO_EXTENSION = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+}
+
+
+def _safe_upload_filename(name: str) -> str:
+    return PurePath(name).name.replace("\\", "_").replace("/", "_")
+
+
+def _safe_file_stem(name: str) -> str:
+    stem = PurePath(name).stem
+    cleaned = "".join(char.lower() if char.isalnum() else "-" for char in stem).strip("-")
+    return cleaned or "brand-mark"
+
+
+def _resolve_brand_logo_file_details(file: UploadFile, safe_name: str) -> tuple[str, str]:
+    suffix = PurePath(safe_name).suffix.lower()
+    content_type = (file.content_type or "").strip().lower()
+
+    if suffix in BRAND_LOGO_EXTENSION_TO_CONTENT_TYPE:
+        expected_content_type = BRAND_LOGO_EXTENSION_TO_CONTENT_TYPE[suffix]
+        if content_type in {"", "application/octet-stream", "binary/octet-stream", expected_content_type}:
+            return suffix, expected_content_type
+
+    if content_type in BRAND_LOGO_CONTENT_TYPE_TO_EXTENSION:
+        return BRAND_LOGO_CONTENT_TYPE_TO_EXTENSION[content_type], content_type
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Logo file must be PNG, JPG, WEBP, or SVG.",
+    )
 
 
 def _to_tenant_response(tenant: Tenant) -> TenantResponse:
@@ -304,6 +351,85 @@ async def bootstrap_workspace(
         **workspace_context.model_dump(),
         tenant_created=tenant_created,
         project_created=project_created,
+    )
+
+
+@router.post(
+    "/brand-kit-logo",
+    response_model=BrandKitLogoUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_brand_kit_logo(
+    tenant_id: str | None = Form(default=None),
+    project_id: str | None = Form(default=None),
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(require_roles(*CATALOG_MUTATION_ROLES)),
+    db: Session = Depends(get_db),
+) -> BrandKitLogoUploadResponse:
+    _ = user
+
+    if bool(tenant_id) != bool(project_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="tenant_id and project_id must be provided together.",
+        )
+
+    if tenant_id and project_id:
+        tenant = db.get(Tenant, tenant_id)
+        if tenant is None:
+            raise HTTPException(status_code=404, detail="Tenant not found.")
+
+        project = db.scalar(
+            select(Project).where(
+                Project.id == project_id,
+                Project.tenant_id == tenant_id,
+            )
+        )
+        if project is None:
+            raise HTTPException(status_code=404, detail="Project not found for tenant.")
+
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded logo is empty.")
+    if len(payload) > BRAND_LOGO_MAX_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Logo file must be 5 MB or smaller.",
+        )
+
+    safe_name = _safe_upload_filename(file.filename or "brand-logo")
+    suffix, content_type = _resolve_brand_logo_file_details(file, safe_name)
+    public_root = (settings.repo_root / "apps" / "web" / "public").resolve()
+    destination_dir = (
+        (public_root / "brand-uploads" / tenant_id / project_id).resolve()
+        if tenant_id and project_id
+        else (public_root / "brand-uploads" / "drafts").resolve()
+    )
+
+    try:
+        destination_dir.relative_to(public_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="Computed brand asset path is invalid.") from exc
+
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid4().hex[:12]}-{_safe_file_stem(safe_name)}{suffix}"
+    destination_path = (destination_dir / stored_name).resolve()
+    try:
+        destination_path.relative_to(public_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="Computed brand asset file is invalid.") from exc
+
+    destination_path.write_bytes(payload)
+    logo_uri = f"/{destination_path.relative_to(public_root).as_posix()}"
+
+    if len(logo_uri) > 1024:
+        raise HTTPException(status_code=500, detail="Stored logo path exceeded brand kit limits.")
+
+    return BrandKitLogoUploadResponse(
+        logo_uri=logo_uri,
+        filename=stored_name,
+        content_type=content_type,
+        size_bytes=len(payload),
     )
 
 

@@ -16,9 +16,12 @@ export const queryKeys = {
   dashboard: {
     overview: (workspace: WorkspaceContext | null) =>
       ["dashboard", ...workspaceKey(workspace), "overview"] as const,
+    notifications: (workspace: WorkspaceContext | null) =>
+      ["dashboard", ...workspaceKey(workspace), "notifications"] as const,
   },
   runs: {
-    list: (workspace: WorkspaceContext | null) => ["runs", ...workspaceKey(workspace), "list"] as const,
+    list: (workspace: WorkspaceContext | null) =>
+      ["runs", ...workspaceKey(workspace), "list"] as const,
     packageStatus: (workspace: WorkspaceContext | null, runId: string | null) =>
       ["runs", ...workspaceKey(workspace), "package-status", runId ?? "none"] as const,
     triage: (workspace: WorkspaceContext | null, runId: string | null) =>
@@ -57,6 +60,7 @@ export const queryKeys = {
       ] as const,
   },
   retrieval: {
-    query: (workspace: WorkspaceContext | null) => ["retrieval", ...workspaceKey(workspace), "query"] as const,
+    query: (workspace: WorkspaceContext | null) =>
+      ["retrieval", ...workspaceKey(workspace), "query"] as const,
   },
 };

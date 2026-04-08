@@ -1,23 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  bootstrapWorkspace,
-  fetchWorkspaceContext,
-  syncIntegrations,
-} from "./catalog";
-import { fetchDashboardOverview } from "./dashboard";
+import { bootstrapWorkspace, fetchWorkspaceContext, syncIntegrations } from "./catalog";
+import { fetchDashboardNotifications, fetchDashboardOverview } from "./dashboard";
 import {
   fetchIntegrationDetail,
   runConnectorOperation,
   saveIntegrationProfile,
 } from "./integrations";
 import { queryRetrieval } from "./retrieval";
-import {
-  createRun,
-  executeRun,
-  fetchRunPackageStatus,
-  publishRun,
-} from "./runs";
+import { createRun, executeRun, fetchRunPackageStatus, publishRun } from "./runs";
 
 const workspace = {
   tenantId: "tenant-1",
@@ -114,6 +105,41 @@ describe("web sdk functions", () => {
     expect(url.searchParams.get("project_id")).toBe("project-1");
     expect(requestHeaders(input, init).get("x-tenant-id")).toBe("tenant-1");
     expect(payload.hero.project_code).toBe("AR2025");
+  });
+
+  it("fetches dashboard notifications through the workspace-aware sdk", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            notification_id: "publish:1",
+            title: "Controlled publish queued",
+            detail: "queued • compose",
+            category: "publish",
+            status: "attention",
+            occurred_at_utc: "2026-04-08T10:05:00Z",
+            source_ref: {
+              run_id: "run-1",
+              audit_event_id: "audit-1",
+            },
+          },
+        ],
+        generated_at_utc: "2026-04-08T10:05:00Z",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const payload = await fetchDashboardNotifications(workspace);
+
+    const [input, init] = fetchMock.mock.calls[0]!;
+    const url = requestUrl(input);
+
+    expect(url.pathname).toBe("/dashboard/notifications");
+    expect(url.searchParams.get("tenant_id")).toBe("tenant-1");
+    expect(url.searchParams.get("project_id")).toBe("project-1");
+    expect(url.searchParams.get("limit")).toBe("25");
+    expect(requestHeaders(input, init).get("x-tenant-id")).toBe("tenant-1");
+    expect(payload.items[0]?.title).toBe("Controlled publish queued");
   });
 
   it("fetches package status and executes/publishes runs with typed payloads", async () => {
@@ -357,9 +383,9 @@ describe("web sdk functions", () => {
     const syncUrl = requestUrl(fetchMock.mock.calls[1]![0]);
     const createRunUrl = requestUrl(fetchMock.mock.calls[2]![0]);
 
-    expect(requestHeaders(fetchMock.mock.calls[0]![0], fetchMock.mock.calls[0]![1]).get("x-tenant-id")).toBe(
-      "dev-tenant",
-    );
+    expect(
+      requestHeaders(fetchMock.mock.calls[0]![0], fetchMock.mock.calls[0]![1]).get("x-tenant-id"),
+    ).toBe("dev-tenant");
     expect(syncUrl.pathname).toBe("/integrations/sync");
     expect(createRunUrl.pathname).toBe("/runs");
     expect(bootstrapPayload.project.code).toBe("AR2025");

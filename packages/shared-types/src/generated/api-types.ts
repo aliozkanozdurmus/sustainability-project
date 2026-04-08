@@ -158,6 +158,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/catalog/brand-kit-logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Brand Kit Logo */
+        post: operations["upload_brand_kit_logo_catalog_brand_kit_logo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/catalog/workspace-context": {
         parameters: {
             query?: never;
@@ -184,6 +201,23 @@ export interface paths {
         };
         /** Get Dashboard Overview */
         get: operations["get_dashboard_overview_dashboard_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboard/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dashboard Notifications */
+        get: operations["get_dashboard_notifications_dashboard_notifications_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -746,6 +780,15 @@ export interface components {
             /** Required Roles */
             required_roles: ("admin" | "compliance_manager" | "analyst" | "board_member" | "committee_secretary" | "auditor_readonly")[];
         };
+        /** Body_upload_brand_kit_logo_catalog_brand_kit_logo_post */
+        Body_upload_brand_kit_logo_catalog_brand_kit_logo_post: {
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** File */
+            file: string;
+        };
         /** Body_upload_document_documents_upload_post */
         Body_upload_document_documents_upload_post: {
             /** Tenant Id */
@@ -758,6 +801,17 @@ export interface components {
             issued_at?: string | null;
             /** File */
             file: string;
+        };
+        /** BrandKitLogoUploadResponse */
+        BrandKitLogoUploadResponse: {
+            /** Logo Uri */
+            logo_uri: string;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Size Bytes */
+            size_bytes: number;
         };
         /** BrandKitResponse */
         BrandKitResponse: {
@@ -1236,6 +1290,13 @@ export interface components {
             /** Trend */
             trend?: components["schemas"]["KpiTrendPoint"][];
         };
+        /** DashboardNotificationsResponse */
+        DashboardNotificationsResponse: {
+            /** Items */
+            items?: components["schemas"]["NotificationItem"][];
+            /** Generated At Utc */
+            generated_at_utc: string;
+        };
         /** DashboardOverviewResponse */
         DashboardOverviewResponse: {
             hero: components["schemas"]["DashboardHero"];
@@ -1577,6 +1638,40 @@ export interface components {
             status: string;
             /** Service */
             service: string;
+        };
+        /** NotificationItem */
+        NotificationItem: {
+            /** Notification Id */
+            notification_id: string;
+            /** Title */
+            title: string;
+            /** Detail */
+            detail: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "connector_sync" | "report_run" | "document_upload" | "document_extraction" | "document_indexing" | "verification" | "publish" | "system";
+            /**
+             * Status
+             * @default neutral
+             * @enum {string}
+             */
+            status: "good" | "attention" | "critical" | "neutral";
+            /** Occurred At Utc */
+            occurred_at_utc?: string | null;
+            source_ref?: components["schemas"]["NotificationSourceRef"] | null;
+        };
+        /** NotificationSourceRef */
+        NotificationSourceRef: {
+            /** Run Id */
+            run_id?: string | null;
+            /** Document Id */
+            document_id?: string | null;
+            /** Integration Id */
+            integration_id?: string | null;
+            /** Audit Event Id */
+            audit_event_id?: string | null;
         };
         /** PipelineLane */
         PipelineLane: {
@@ -2590,6 +2685,43 @@ export interface operations {
             };
         };
     };
+    upload_brand_kit_logo_catalog_brand_kit_logo_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_brand_kit_logo_catalog_brand_kit_logo_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrandKitLogoUploadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_workspace_context_catalog_workspace_context_get: {
         parameters: {
             query: {
@@ -2649,6 +2781,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dashboard_notifications_dashboard_notifications_get: {
+        parameters: {
+            query: {
+                tenant_id: string;
+                project_id: string;
+                limit?: number;
+            };
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardNotificationsResponse"];
                 };
             };
             /** @description Validation Error */

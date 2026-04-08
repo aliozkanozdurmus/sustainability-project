@@ -17,6 +17,14 @@ describe("queryKeys", () => {
       "project-1",
       "overview",
     ]);
+    expect(queryKeys.dashboard.notifications(workspace)).toEqual([
+      "dashboard",
+      "tenant",
+      "tenant-1",
+      "project",
+      "project-1",
+      "notifications",
+    ]);
     expect(queryKeys.runs.list(workspace)).toEqual([
       "runs",
       "tenant",

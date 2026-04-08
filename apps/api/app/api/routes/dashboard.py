@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import require_roles
 from app.db.session import get_db
 from app.models.core import (
+    AuditEvent,
     BrandKit,
     CanonicalFact,
     CompanyProfile,
@@ -33,10 +34,13 @@ from app.schemas.dashboard import (
     ActivityItem,
     ArtifactHealthSummary,
     ConnectorHealthItem,
+    DashboardNotificationsResponse,
     DashboardHero,
     DashboardMetric,
     DashboardOverviewResponse,
     KpiTrendPoint,
+    NotificationItem,
+    NotificationSourceRef,
     PipelineLane,
     RiskItem,
     RunQueueItem,
@@ -71,6 +75,14 @@ ARTIFACT_LABELS = {
     "coverage_matrix": "Coverage Matrix",
     "assumption_register": "Assumption Register",
 }
+
+NOTIFICATION_AUDIT_EVENT_TYPES = (
+    "document_extraction_queue",
+    "document_extraction",
+    "document_indexing",
+    "verification",
+    "publish",
+)
 
 
 def _utcnow() -> datetime:
@@ -175,6 +187,282 @@ def _slot_label(run: ReportRun) -> str:
     if reference is None:
         return "Awaiting schedule"
     return reference.astimezone(timezone.utc).strftime("%d %b • %H:%M UTC")
+
+
+def _notification_sort_key(item: tuple[datetime, NotificationItem]) -> tuple[datetime, str]:
+    occurred_at, notification = item
+    return (occurred_at, notification.notification_id)
+
+
+def _notification_join_parts(*parts: object | None) -> str:
+    return " • ".join(str(part) for part in parts if part not in {None, ""})
+
+
+def _audit_event_category(event: AuditEvent) -> str:
+    event_type = event.event_type
+    if event_type == "document_extraction_queue":
+        return "document_extraction"
+    if event_type == "document_extraction":
+        return "document_extraction"
+    if event_type == "document_indexing":
+        return "document_indexing"
+    if event_type == "verification":
+        return "verification"
+    if event_type == "publish":
+        return "publish"
+    return "system"
+
+
+def _audit_event_status(event: AuditEvent) -> str:
+    event_name = event.event_name
+    if event_name in {"publish_failed", "publish_blocked", "verification_triage_required", "enqueue_failed"}:
+        return "critical"
+    if event_name.endswith("_failed") or event_name.endswith("_retry_exhausted"):
+        return "critical"
+    if event_name in {"publish_queued", "extraction_enqueued"}:
+        return "attention"
+    if event_name.endswith("_started") or event_name.endswith("_retry_scheduled"):
+        return "attention"
+    if event_name.endswith("_completed") or event_name == "verification_results_persisted":
+        return "good"
+    return "neutral"
+
+
+def _audit_event_title(event: AuditEvent) -> str:
+    mapping = {
+        ("document_extraction_queue", "extraction_enqueued"): "Extraction queued",
+        ("document_extraction_queue", "enqueue_failed"): "Extraction enqueue failed",
+        ("document_extraction", "extraction_record_created"): "Extraction record created",
+        ("document_extraction", "extraction_started"): "Extraction started",
+        ("document_extraction", "extraction_completed"): "Extraction completed",
+        ("document_extraction", "extraction_failed"): "Extraction failed",
+        ("document_extraction", "extraction_retry_scheduled"): "Extraction retry scheduled",
+        ("document_extraction", "extraction_retry_exhausted"): "Extraction retry exhausted",
+        ("document_indexing", "indexing_started"): "Indexing started",
+        ("document_indexing", "indexing_completed"): "Indexing completed",
+        ("document_indexing", "indexing_failed"): "Indexing failed",
+        ("document_indexing", "indexing_retry_scheduled"): "Indexing retry scheduled",
+        ("document_indexing", "indexing_retry_exhausted"): "Indexing retry exhausted",
+        ("verification", "verification_results_persisted"): "Verification updated",
+        ("verification", "verification_triage_required"): "Verification triage required",
+        ("publish", "publish_queued"): "Controlled publish queued",
+        ("publish", "publish_blocked"): "Controlled publish blocked",
+        ("publish", "publish_failed"): "Controlled publish failed",
+        ("publish", "publish_completed"): "Controlled publish completed",
+    }
+    return mapping.get((event.event_type, event.event_name), event.event_name.replace("_", " ").title())
+
+
+def _audit_event_detail(event: AuditEvent) -> str:
+    payload = event.event_payload if isinstance(event.event_payload, dict) else {}
+    event_name = event.event_name
+
+    if event_name == "extraction_enqueued":
+        return _notification_join_parts("Awaiting OCR processing", payload.get("extraction_mode"))
+    if event_name == "enqueue_failed":
+        return "The extraction job could not be queued."
+    if event_name == "extraction_record_created":
+        return _notification_join_parts("Draft extraction record prepared", payload.get("mode"))
+    if event_name == "extraction_started":
+        return "OCR processing is now running."
+    if event_name == "extraction_completed":
+        return _notification_join_parts(
+            f"{payload.get('chunk_count', 0)} chunks",
+            f"Quality {payload.get('quality_score', '-')}",
+        )
+    if event_name == "extraction_failed":
+        return str(payload.get("error") or "The extraction job failed.")
+    if event_name == "extraction_retry_scheduled":
+        return _notification_join_parts(
+            f"Attempt {payload.get('attempt', '-')}",
+            f"Retry in {payload.get('defer_seconds', '-')}s",
+        )
+    if event_name == "extraction_retry_exhausted":
+        return str(payload.get("error") or "All extraction retries were exhausted.")
+    if event_name == "indexing_started":
+        return "Search indexing has started for the extracted evidence."
+    if event_name == "indexing_completed":
+        return _notification_join_parts(
+            f"{payload.get('indexed_chunk_count', 0)} chunks",
+            payload.get("index_name"),
+        )
+    if event_name == "indexing_failed":
+        return str(payload.get("error") or "The indexing job failed.")
+    if event_name == "indexing_retry_scheduled":
+        return _notification_join_parts(
+            f"Attempt {payload.get('attempt', '-')}",
+            f"Retry in {payload.get('defer_seconds', '-')}s",
+        )
+    if event_name == "indexing_retry_exhausted":
+        return str(payload.get("error") or "All indexing retries were exhausted.")
+    if event_name == "verification_results_persisted":
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        return _notification_join_parts(
+            f"PASS {summary.get('pass_count', 0)}",
+            f"FAIL {summary.get('fail_count', 0)}",
+            f"UNSURE {summary.get('unsure_count', 0)}",
+        )
+    if event_name == "verification_triage_required":
+        triage = payload.get("triage") if isinstance(payload.get("triage"), dict) else {}
+        return _notification_join_parts(
+            f"Critical FAIL {triage.get('critical_fail_count', 0)}",
+            f"FAIL {triage.get('fail_count', 0)}",
+            f"UNSURE {triage.get('unsure_count', 0)}",
+        )
+    if event_name == "publish_queued":
+        return _notification_join_parts(
+            payload.get("package_status"),
+            payload.get("estimated_stage"),
+        )
+    if event_name == "publish_blocked":
+        blockers = payload.get("blockers")
+        if isinstance(blockers, list):
+            return f"{len(blockers)} publish blockers require operator review."
+        return "The publish gate blocked this run."
+    if event_name == "publish_failed":
+        return str(payload.get("reason") or "The publish job failed.")
+    if event_name == "publish_completed":
+        artifacts = payload.get("artifacts")
+        artifact_count = len(artifacts) if isinstance(artifacts, list) else 0
+        report_pdf = payload.get("report_pdf") if isinstance(payload.get("report_pdf"), dict) else {}
+        return _notification_join_parts(
+            f"{artifact_count} artifacts ready",
+            report_pdf.get("filename"),
+        )
+
+    return str(payload) if payload else "Operational activity recorded."
+
+
+def _build_audit_notification(event: AuditEvent) -> tuple[datetime, NotificationItem]:
+    occurred_at = event.occurred_at if event.occurred_at.tzinfo else event.occurred_at.replace(tzinfo=timezone.utc)
+    payload = event.event_payload if isinstance(event.event_payload, dict) else {}
+    document_id = payload.get("document_id") if isinstance(payload.get("document_id"), str) else None
+    integration_id = payload.get("integration_id") if isinstance(payload.get("integration_id"), str) else None
+    return (
+        occurred_at,
+        NotificationItem(
+            notification_id=f"audit:{event.id}",
+            title=_audit_event_title(event),
+            detail=_audit_event_detail(event),
+            category=_audit_event_category(event),  # type: ignore[arg-type]
+            status=_audit_event_status(event),  # type: ignore[arg-type]
+            occurred_at_utc=occurred_at.isoformat(),
+            source_ref=NotificationSourceRef(
+                run_id=event.report_run_id,
+                document_id=document_id,
+                integration_id=integration_id,
+                audit_event_id=event.id,
+            ),
+        ),
+    )
+
+
+def _build_connector_sync_notification(
+    job: ConnectorSyncJob,
+    integration: IntegrationConfig | None,
+) -> tuple[datetime, NotificationItem]:
+    occurred_at = job.completed_at or job.started_at or job.created_at
+    if occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+    status = "good" if job.status == "completed" else "critical" if job.status == "failed" else "attention"
+    title = (
+        "Connector sync completed"
+        if job.status == "completed"
+        else "Connector sync failed"
+        if job.status == "failed"
+        else "Connector sync active"
+    )
+    connector_label = integration.display_name if integration is not None else "Connector"
+    return (
+        occurred_at,
+        NotificationItem(
+            notification_id=f"connector_sync:{job.id}:{job.status}",
+            title=title,
+            detail=_notification_join_parts(
+                connector_label,
+                job.current_stage,
+                f"{job.record_count} records",
+            ),
+            category="connector_sync",
+            status=status,  # type: ignore[arg-type]
+            occurred_at_utc=occurred_at.isoformat(),
+            source_ref=NotificationSourceRef(
+                integration_id=job.integration_config_id,
+            ),
+        ),
+    )
+
+
+def _build_document_upload_notification(document: SourceDocument) -> tuple[datetime, NotificationItem]:
+    occurred_at = document.ingested_at if document.ingested_at.tzinfo else document.ingested_at.replace(tzinfo=timezone.utc)
+    return (
+        occurred_at,
+        NotificationItem(
+            notification_id=f"document_upload:{document.id}:uploaded",
+            title="Evidence uploaded",
+            detail=_notification_join_parts(document.filename, document.document_type),
+            category="document_upload",
+            status="neutral",
+            occurred_at_utc=occurred_at.isoformat(),
+            source_ref=NotificationSourceRef(document_id=document.id),
+        ),
+    )
+
+
+def _build_run_notifications(run: ReportRun) -> list[tuple[datetime, NotificationItem]]:
+    notifications: list[tuple[datetime, NotificationItem]] = []
+    created_at = run.created_at if run.created_at.tzinfo else run.created_at.replace(tzinfo=timezone.utc)
+    notifications.append(
+        (
+            created_at,
+            NotificationItem(
+                notification_id=f"report_run:{run.id}:created",
+                title="Report run created",
+                detail=_notification_join_parts(run.report_blueprint_version or "Blueprint pending", run.status),
+                category="report_run",
+                status="neutral",
+                occurred_at_utc=created_at.isoformat(),
+                source_ref=NotificationSourceRef(run_id=run.id),
+            ),
+        )
+    )
+    if run.completed_at is not None:
+        completed_at = run.completed_at if run.completed_at.tzinfo else run.completed_at.replace(tzinfo=timezone.utc)
+        completed_status = "good" if run.status in {"completed", "published"} else "critical"
+        notifications.append(
+            (
+                completed_at,
+                NotificationItem(
+                    notification_id=f"report_run:{run.id}:completed",
+                    title="Report run completed",
+                    detail=_notification_join_parts(
+                        run.status,
+                        f"Quality {run.report_quality_score:.1f}" if run.report_quality_score is not None else None,
+                    ),
+                    category="report_run",
+                    status=completed_status,  # type: ignore[arg-type]
+                    occurred_at_utc=completed_at.isoformat(),
+                    source_ref=NotificationSourceRef(run_id=run.id),
+                ),
+            )
+        )
+    if run.status == "published" and run.completed_at is not None:
+        published_at = run.completed_at if run.completed_at.tzinfo else run.completed_at.replace(tzinfo=timezone.utc)
+        notifications.append(
+            (
+                published_at,
+                NotificationItem(
+                    notification_id=f"report_run:{run.id}:published",
+                    title="Report published",
+                    detail=_notification_join_parts(run.package_status, "Artifacts available for review"),
+                    category="report_run",
+                    status="good",
+                    occurred_at_utc=published_at.isoformat(),
+                    source_ref=NotificationSourceRef(run_id=run.id),
+                ),
+            )
+        )
+    return notifications
 
 
 @router.get("/overview", response_model=DashboardOverviewResponse, status_code=status.HTTP_200_OK)
@@ -638,5 +926,93 @@ async def get_dashboard_overview(
         artifact_health=artifact_health,
         activity_feed=activity_feed[:6],
         run_queue=run_queue,
+        generated_at_utc=_utcnow().isoformat(),
+    )
+
+
+@router.get("/notifications", response_model=DashboardNotificationsResponse, status_code=status.HTTP_200_OK)
+async def get_dashboard_notifications(
+    tenant_id: str = Query(min_length=1),
+    project_id: str = Query(min_length=1),
+    limit: int = Query(default=25, ge=1, le=50),
+    user: CurrentUser = Depends(require_roles(*DASHBOARD_READ_ROLES)),
+    db: Session = Depends(get_db),
+) -> DashboardNotificationsResponse:
+    _ = user
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found.")
+
+    project = db.scalar(
+        select(Project).where(
+            Project.id == project_id,
+            Project.tenant_id == tenant_id,
+        )
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found for tenant.")
+
+    integration_by_id = {
+        integration.id: integration
+        for integration in db.scalars(
+            select(IntegrationConfig).where(
+                IntegrationConfig.project_id == project_id,
+                IntegrationConfig.tenant_id == tenant_id,
+            )
+        ).all()
+    }
+
+    audit_events = db.scalars(
+        select(AuditEvent)
+        .where(
+            AuditEvent.tenant_id == tenant_id,
+            AuditEvent.project_id == project_id,
+            AuditEvent.event_type.in_(NOTIFICATION_AUDIT_EVENT_TYPES),
+        )
+        .order_by(AuditEvent.occurred_at.desc())
+        .limit(limit)
+    ).all()
+    sync_jobs = db.scalars(
+        select(ConnectorSyncJob)
+        .where(
+            ConnectorSyncJob.tenant_id == tenant_id,
+            ConnectorSyncJob.project_id == project_id,
+        )
+        .order_by(ConnectorSyncJob.created_at.desc())
+        .limit(limit)
+    ).all()
+    documents = db.scalars(
+        select(SourceDocument)
+        .where(
+            SourceDocument.tenant_id == tenant_id,
+            SourceDocument.project_id == project_id,
+        )
+        .order_by(SourceDocument.ingested_at.desc())
+        .limit(limit)
+    ).all()
+    runs = db.scalars(
+        select(ReportRun)
+        .where(
+            ReportRun.tenant_id == tenant_id,
+            ReportRun.project_id == project_id,
+        )
+        .order_by(ReportRun.created_at.desc())
+        .limit(limit)
+    ).all()
+
+    notifications: list[tuple[datetime, NotificationItem]] = []
+    notifications.extend(_build_audit_notification(event) for event in audit_events)
+    notifications.extend(
+        _build_connector_sync_notification(job, integration_by_id.get(job.integration_config_id))
+        for job in sync_jobs
+    )
+    notifications.extend(_build_document_upload_notification(document) for document in documents)
+    for run in runs:
+        notifications.extend(_build_run_notifications(run))
+
+    notifications.sort(key=_notification_sort_key, reverse=True)
+
+    return DashboardNotificationsResponse(
+        items=[item for _, item in notifications[:limit]],
         generated_at_utc=_utcnow().isoformat(),
     )

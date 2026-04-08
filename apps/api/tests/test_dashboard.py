@@ -13,6 +13,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.core import (
+    AuditEvent,
     Claim,
     ExtractionRecord,
     Project,
@@ -233,6 +234,190 @@ def test_dashboard_overview_returns_live_aggregate_payload(tmp_path: Path) -> No
         assert any(item["artifact_type"] == "report_pdf" and item["available"] == 1 for item in payload["artifact_health"])
         assert any(item["title"] == "Verifier triage pressure" for item in payload["risks"])
         assert len(payload["run_queue"]) == 2
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_dashboard_notifications_merge_and_limit_operational_events(tmp_path: Path) -> None:
+    db_file = tmp_path / "test_dashboard_notifications.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+
+    try:
+        with TestingSessionLocal() as session:
+            tenant, project = _seed_tenant_and_project(session)
+            _seed_report_factory_context(session, tenant=tenant, project=project)
+
+            visible_run = ReportRun(
+                tenant_id=tenant.id,
+                project_id=project.id,
+                status="published",
+                created_at=datetime(2026, 4, 8, 10, 0, tzinfo=timezone.utc),
+                completed_at=datetime(2026, 4, 8, 10, 5, tzinfo=timezone.utc),
+                publish_ready=True,
+                package_status="completed",
+                report_quality_score=94.2,
+                visual_generation_status="completed",
+                report_blueprint_version="factory-v1",
+            )
+            hidden_run = ReportRun(
+                tenant_id=tenant.id,
+                project_id=project.id,
+                status="running",
+                created_at=datetime(2026, 4, 8, 9, 0, tzinfo=timezone.utc),
+                publish_ready=False,
+                package_status="running",
+                visual_generation_status="running",
+                report_blueprint_version="factory-v1",
+            )
+            other_tenant = Tenant(name="Other Tenant", slug="other-dashboard-tenant")
+            session.add_all([visible_run, hidden_run, other_tenant])
+            session.flush()
+
+            other_project = Project(
+                tenant_id=other_tenant.id,
+                name="Other Project",
+                code="OTHER-1",
+                reporting_currency="TRY",
+            )
+            session.add(other_project)
+            session.flush()
+            other_run = ReportRun(
+                tenant_id=other_tenant.id,
+                project_id=other_project.id,
+                status="published",
+                created_at=datetime(2026, 4, 8, 11, 0, tzinfo=timezone.utc),
+                completed_at=datetime(2026, 4, 8, 11, 5, tzinfo=timezone.utc),
+                publish_ready=True,
+                package_status="completed",
+                visual_generation_status="completed",
+            )
+            session.add(other_run)
+
+            source_document = SourceDocument(
+                tenant_id=tenant.id,
+                project_id=project.id,
+                document_type="energy_invoice",
+                filename="energy-2025.pdf",
+                storage_uri="obj://energy-2025.pdf",
+                checksum="sha256:doc",
+                status="uploaded",
+                ingested_at=datetime(2026, 4, 8, 10, 3, tzinfo=timezone.utc),
+            )
+            session.add(source_document)
+            session.flush()
+
+            session.add_all(
+                [
+                    AuditEvent(
+                        tenant_id=tenant.id,
+                        project_id=project.id,
+                        report_run_id=visible_run.id,
+                        event_type="publish",
+                        event_name="publish_blocked",
+                        event_payload={"blockers": [{"code": "FAIL"}]},
+                        occurred_at=datetime(2026, 4, 8, 10, 7, tzinfo=timezone.utc),
+                    ),
+                    AuditEvent(
+                        tenant_id=tenant.id,
+                        project_id=project.id,
+                        report_run_id=visible_run.id,
+                        event_type="verification",
+                        event_name="verification_triage_required",
+                        event_payload={
+                            "triage": {
+                                "critical_fail_count": 1,
+                                "fail_count": 2,
+                                "unsure_count": 1,
+                            }
+                        },
+                        occurred_at=datetime(2026, 4, 8, 10, 6, tzinfo=timezone.utc),
+                    ),
+                    AuditEvent(
+                        tenant_id=tenant.id,
+                        project_id=project.id,
+                        report_run_id=visible_run.id,
+                        event_type="publish",
+                        event_name="publish_completed",
+                        event_payload={
+                            "artifacts": [{"artifact_id": "artifact-1"}],
+                            "report_pdf": {"filename": "report.pdf"},
+                        },
+                        occurred_at=datetime(2026, 4, 8, 10, 4, tzinfo=timezone.utc),
+                    ),
+                    AuditEvent(
+                        tenant_id=other_tenant.id,
+                        project_id=other_project.id,
+                        report_run_id=other_run.id,
+                        event_type="publish",
+                        event_name="publish_completed",
+                        event_payload={"artifacts": [], "report_pdf": None},
+                        occurred_at=datetime(2026, 4, 8, 11, 10, tzinfo=timezone.utc),
+                    ),
+                ]
+            )
+            session.commit()
+
+            tenant_id = tenant.id
+            project_id = project.id
+            visible_run_id = visible_run.id
+            other_run_id = other_run.id
+
+        response = client.get(
+            f"/dashboard/notifications?tenant_id={tenant_id}&project_id={project_id}&limit=4",
+            headers={"x-user-role": "analyst"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+        assert len(payload["items"]) == 4
+        assert payload["items"][0]["title"] == "Controlled publish blocked"
+        assert payload["items"][1]["title"] == "Verification triage required"
+
+        full_response = client.get(
+            f"/dashboard/notifications?tenant_id={tenant_id}&project_id={project_id}&limit=20",
+            headers={"x-user-role": "analyst"},
+        )
+        assert full_response.status_code == 200
+        full_payload = full_response.json()
+
+        assert any(
+            item["category"] == "publish" and item["status"] == "critical"
+            for item in full_payload["items"]
+        )
+        assert any(
+            item["category"] == "verification" and item["status"] == "critical"
+            for item in full_payload["items"]
+        )
+        assert any(
+            item["category"] == "document_upload"
+            and item["status"] == "neutral"
+            and "energy-2025.pdf" in item["detail"]
+            and "energy_invoice" in item["detail"]
+            for item in full_payload["items"]
+        )
+        assert any(
+            item["category"] == "report_run"
+            and item["source_ref"]["run_id"] == visible_run_id
+            for item in full_payload["items"]
+        )
+        assert any(
+            item["category"] == "connector_sync" and item["status"] == "good"
+            for item in full_payload["items"]
+        )
+        assert all(item["source_ref"].get("run_id") != other_run_id for item in full_payload["items"])
     finally:
         app.dependency_overrides.clear()
         engine.dispose()

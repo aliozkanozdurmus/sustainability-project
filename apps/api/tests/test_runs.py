@@ -203,7 +203,7 @@ def test_report_factory_converts_local_brand_logo_path_to_data_uri(tmp_path: Pat
                 session,
                 tenant_id=tenant_id,
                 project_id=project_id,
-                logo_uri="/brand/veni-logo-orbit-leaf.png",
+                logo_uri="/brand/veni-logo-clean-orbit-emblem.png",
             )
             tenant = session.get(Tenant, tenant_id)
             brand_kit = session.get(BrandKit, brand_kit_id)
@@ -238,7 +238,7 @@ def test_report_package_renders_local_brand_logo_in_reportlab_fallback(
                 session,
                 tenant_id=tenant_id,
                 project_id=project_id,
-                logo_uri="/brand/veni-logo-orbit-leaf.png",
+                logo_uri="/brand/veni-logo-clean-orbit-emblem.png",
             )
 
             report_run = ReportRun(

@@ -2,6 +2,9 @@
 <html lang="tr">
   <head>
     <meta charset="utf-8" />
+    {% if brand_google_fonts_url %}
+    <link rel="stylesheet" href="{{ brand_google_fonts_url }}" />
+    {% endif %}
     <style>
       @page { size: A4 landscape; margin: 0; }
       :root {
@@ -17,7 +20,7 @@
       html, body { margin: 0; padding: 0; }
       body {
         margin: 0;
-        font-family: "{{ brand.font_family_body }}", "DejaVu Sans", sans-serif;
+        font-family: "{{ brand_body_font }}", "DejaVu Sans", sans-serif;
         color: var(--ink);
         background: var(--paper);
       }
@@ -56,7 +59,7 @@
       .shell { position: relative; z-index: 2; padding: 34px 40px 28px; }
       .heading {
         margin: 0;
-        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+        font-family: "{{ brand_heading_font }}", "DejaVu Sans", sans-serif;
         font-weight: 700;
       }
       .card {
@@ -90,7 +93,7 @@
       .brand img { width: 56px; height: 56px; }
       .brand strong {
         display: block;
-        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+        font-family: "{{ brand_heading_font }}", "DejaVu Sans", sans-serif;
         font-size: 28px;
       }
       .brand span {
@@ -164,7 +167,7 @@
       .contents .rail-top div {
         margin-top: 10px;
         font-size: 12px;
-        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+        font-family: "{{ brand_heading_font }}", "DejaVu Sans", sans-serif;
       }
       .contents .rail-item { padding: 8px 8px 8px 10px; border-left: 4px solid transparent; }
       .contents .rail-item strong { display: block; font-size: 12px; }
@@ -185,7 +188,7 @@
       .contents .intro-card { padding: 18px 20px; }
       .contents .intro-card strong {
         display: block;
-        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+        font-family: "{{ brand_heading_font }}", "DejaVu Sans", sans-serif;
         font-size: 15px;
       }
       .contents .intro-card span { display: block; margin-top: 8px; font-size: 12px; line-height: 1.62; color: var(--muted); }
@@ -212,7 +215,7 @@
       .toc-line:last-child { border-bottom: 0; }
       .toc-line strong { display: block; font-size: 13px; }
       .toc-line span { display: block; margin-top: 4px; font-size: 10px; color: #6c8294; }
-      .toc-page { font-size: 12px; font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif; }
+      .toc-page { font-size: 12px; font-family: "{{ brand_heading_font }}", "DejaVu Sans", sans-serif; }
       .opener { color: white; }
       .opener .hero::after {
         content: "";
@@ -268,7 +271,7 @@
       .section-head .meta strong {
         display: block;
         margin-bottom: 10px;
-        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+        font-family: "{{ brand_heading_font }}", "DejaVu Sans", sans-serif;
         font-size: 15px;
       }
       .section-head .meta ul { margin: 0; padding-left: 18px; }
@@ -323,7 +326,7 @@
         font-size: 23px;
         line-height: 1.5;
         color: #13293d;
-        font-family: "{{ brand.font_family_headings }}", "DejaVu Sans", sans-serif;
+        font-family: "{{ brand_heading_font }}", "DejaVu Sans", sans-serif;
       }
       .signature {
         margin-top: 18px;

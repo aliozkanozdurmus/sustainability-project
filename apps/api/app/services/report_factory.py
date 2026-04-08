@@ -12,6 +12,7 @@ from io import BytesIO
 import json
 import mimetypes
 from pathlib import Path
+import re
 from typing import Any, Iterable
 from urllib import error, parse, request
 
@@ -239,6 +240,39 @@ def _load_binary_asset(asset_uri: str) -> tuple[bytes, str] | None:
             return None
 
     return None
+
+
+SAFE_GOOGLE_FONT_PATTERN = re.compile(r"^[A-Za-z0-9 +\-]{1,64}$")
+
+
+def _normalize_google_font_family(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    if not normalized:
+        return None
+    if not SAFE_GOOGLE_FONT_PATTERN.fullmatch(normalized):
+        return None
+    return normalized
+
+
+def _build_google_fonts_stylesheet_url(families: Iterable[str | None]) -> str | None:
+    unique_families: list[str] = []
+    seen: set[str] = set()
+
+    for family in families:
+        normalized = _normalize_google_font_family(family)
+        if normalized is None or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_families.append(normalized)
+
+    if not unique_families:
+        return None
+
+    query = "&".join(
+        f"family={parse.quote_plus(family)}:wght@400;500;600;700"
+        for family in unique_families
+    )
+    return f"https://fonts.googleapis.com/css2?{query}&display=swap"
 
 
 def _coerce_reportlab_image_bytes(payload: bytes) -> bytes | None:
@@ -2062,12 +2096,17 @@ def _render_html_report(
         project=project,
         company_profile=company_profile,
         brand=brand,
+        brand_heading_font=_normalize_google_font_family(brand.font_family_headings) or "DejaVu Sans",
+        brand_body_font=_normalize_google_font_family(brand.font_family_body) or "DejaVu Sans",
         section_payloads=section_payloads,
         visual_data_uris=visual_data_uris,
         citation_chunks=citation_chunks,
         calculation_chunks=calculation_chunks,
         assumptions=assumptions,
         brand_mark_uri=_resolve_brand_mark_uri(tenant, brand),
+        brand_google_fonts_url=_build_google_fonts_stylesheet_url(
+            (brand.font_family_headings, brand.font_family_body),
+        ),
         reporting_year=reporting_year,
         cover_metrics=cover_metrics,
         profile_facts=profile_facts,

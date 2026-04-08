@@ -120,7 +120,7 @@ def test_workspace_context_surfaces_default_brand_logo_without_missing_logo_bloc
         assert response.status_code == 200
         body = response.json()
         blocker_codes = {item["code"] for item in body["factory_readiness"]["blockers"]}
-        assert body["brand_kit"]["logo_uri"] == "/brand/veni-logo-orbit-leaf.png"
+        assert body["brand_kit"]["logo_uri"] == "/brand/veni-logo-clean-orbit-emblem.png"
         assert body["factory_readiness"]["brand_kit_ready"] is False
         assert "BRAND_KIT_NOT_CONFIRMED" in blocker_codes
         assert "BRAND_KIT_FIELD_MISSING" not in blocker_codes

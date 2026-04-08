@@ -62,6 +62,13 @@ class BrandKitResponse(BaseModel):
     is_configured: bool = False
 
 
+class BrandKitLogoUploadResponse(BaseModel):
+    logo_uri: str
+    filename: str
+    content_type: str
+    size_bytes: int
+
+
 class FactoryReadinessBlockerResponse(BaseModel):
     code: str
     message: str

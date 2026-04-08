@@ -154,7 +154,7 @@ REQUIRED_BRAND_KIT_FIELDS = (
     ("tone_name", "Yönetici mesajı tonu"),
 )
 
-DEFAULT_BRAND_LOGO_URI = "/brand/veni-logo-orbit-leaf.png"
+DEFAULT_BRAND_LOGO_URI = "/brand/veni-logo-clean-orbit-emblem.png"
 
 
 def _default_company_profile(*, tenant: Tenant, project: Project) -> CompanyProfile:
@@ -191,8 +191,8 @@ def _default_brand_kit(*, tenant: Tenant, project: Project) -> BrandKit:
         primary_color="#f07f13",
         secondary_color="#0c4a6e",
         accent_color="#7ab648",
-        font_family_headings="Segoe UI Semibold",
-        font_family_body="Segoe UI",
+        font_family_headings="Inter",
+        font_family_body="Source Sans 3",
         tone_name="kurumsal-guvenilir",
         metadata_json={
             "project_code": project.code,

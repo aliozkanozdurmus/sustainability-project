@@ -8,6 +8,16 @@ from pydantic import BaseModel, Field
 
 
 DashboardStatus = Literal["good", "attention", "critical", "neutral"]
+NotificationCategory = Literal[
+    "connector_sync",
+    "report_run",
+    "document_upload",
+    "document_extraction",
+    "document_indexing",
+    "verification",
+    "publish",
+    "system",
+]
 
 
 class KpiTrendPoint(BaseModel):
@@ -108,6 +118,23 @@ class ActivityItem(BaseModel):
     occurred_at_utc: str | None = None
 
 
+class NotificationSourceRef(BaseModel):
+    run_id: str | None = None
+    document_id: str | None = None
+    integration_id: str | None = None
+    audit_event_id: str | None = None
+
+
+class NotificationItem(BaseModel):
+    notification_id: str
+    title: str
+    detail: str
+    category: NotificationCategory
+    status: DashboardStatus = "neutral"
+    occurred_at_utc: str | None = None
+    source_ref: NotificationSourceRef | None = None
+
+
 class RunQueueItem(BaseModel):
     run_id: str
     report_run_status: str
@@ -130,4 +157,9 @@ class DashboardOverviewResponse(BaseModel):
     artifact_health: list[ArtifactHealthSummary] = Field(default_factory=list)
     activity_feed: list[ActivityItem] = Field(default_factory=list)
     run_queue: list[RunQueueItem] = Field(default_factory=list)
+    generated_at_utc: str
+
+
+class DashboardNotificationsResponse(BaseModel):
+    items: list[NotificationItem] = Field(default_factory=list)
     generated_at_utc: str

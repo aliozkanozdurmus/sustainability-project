@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
+import { BrandKitStudio } from "@/components/report-factory/brand-kit-studio";
 import { Button } from "@/components/ui/button";
 import { persistWorkspaceContext } from "@/lib/api/client";
 import {
@@ -42,6 +43,7 @@ import {
   type LaunchpadWizardState,
   type WorkspaceSetupState,
 } from "@/lib/api/report-factory";
+import { normalizeHexColor } from "@/lib/brand-kit";
 import { resolveBrandLogoUri } from "@/lib/brand";
 import { useWorkspaceContext } from "@/lib/api/workspace-store";
 
@@ -64,7 +66,9 @@ export default function NewReportPage() {
   const [workspaceProjectName, setWorkspaceProjectName] = useState("");
   const [workspaceProjectCode, setWorkspaceProjectCode] = useState("");
   const [workspaceCurrency, setWorkspaceCurrency] = useState("TRY");
-  const [workspaceSetup, setWorkspaceSetup] = useState<WorkspaceSetupState>(INITIAL_WORKSPACE_SETUP_STATE);
+  const [workspaceSetup, setWorkspaceSetup] = useState<WorkspaceSetupState>(
+    INITIAL_WORKSPACE_SETUP_STATE,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
@@ -87,9 +91,8 @@ export default function NewReportPage() {
   const isLastStep = step === STEP_TITLES.length - 1;
   const selectedIntegrations = useMemo(
     () =>
-      factoryContext?.integrations.filter((item) =>
-        connectorScope.includes(item.connectorType),
-      ) ?? [],
+      factoryContext?.integrations.filter((item) => connectorScope.includes(item.connectorType)) ??
+      [],
     [connectorScope, factoryContext],
   );
   const blockedSelectedIntegrations = useMemo(
@@ -127,7 +130,7 @@ export default function NewReportPage() {
         legalName: prev.legalName || payload.company_profile.legal_name,
       }));
     },
-    [workspace?.projectId, workspace?.tenantId],
+    [workspace],
   );
 
   useEffect(() => {
@@ -174,7 +177,9 @@ export default function NewReportPage() {
     });
 
     if (!parsedBootstrapForm.success) {
-      setSubmitError(parsedBootstrapForm.error.issues[0]?.message ?? "Tenant and project fields are required.");
+      setSubmitError(
+        parsedBootstrapForm.error.issues[0]?.message ?? "Tenant and project fields are required.",
+      );
       return;
     }
 
@@ -193,14 +198,24 @@ export default function NewReportPage() {
           description: parsedBootstrapForm.data.workspaceSetup.description.trim(),
           ceo_name: parsedBootstrapForm.data.workspaceSetup.ceoName.trim(),
           ceo_message: parsedBootstrapForm.data.workspaceSetup.ceoMessage.trim(),
-          sustainability_approach: parsedBootstrapForm.data.workspaceSetup.sustainabilityApproach.trim(),
+          sustainability_approach:
+            parsedBootstrapForm.data.workspaceSetup.sustainabilityApproach.trim(),
         },
         brand_kit: {
           brand_name: parsedBootstrapForm.data.workspaceSetup.brandName.trim(),
           logo_uri: parsedBootstrapForm.data.workspaceSetup.logoUri.trim(),
-          primary_color: parsedBootstrapForm.data.workspaceSetup.primaryColor.trim(),
-          secondary_color: parsedBootstrapForm.data.workspaceSetup.secondaryColor.trim(),
-          accent_color: parsedBootstrapForm.data.workspaceSetup.accentColor.trim(),
+          primary_color: normalizeHexColor(
+            parsedBootstrapForm.data.workspaceSetup.primaryColor,
+            INITIAL_WORKSPACE_SETUP.primaryColor,
+          ),
+          secondary_color: normalizeHexColor(
+            parsedBootstrapForm.data.workspaceSetup.secondaryColor,
+            INITIAL_WORKSPACE_SETUP.secondaryColor,
+          ),
+          accent_color: normalizeHexColor(
+            parsedBootstrapForm.data.workspaceSetup.accentColor,
+            INITIAL_WORKSPACE_SETUP.accentColor,
+          ),
           font_family_headings: parsedBootstrapForm.data.workspaceSetup.headingFont.trim(),
           font_family_body: parsedBootstrapForm.data.workspaceSetup.bodyFont.trim(),
           tone_name: parsedBootstrapForm.data.workspaceSetup.toneName.trim(),
@@ -230,7 +245,9 @@ export default function NewReportPage() {
       return;
     }
     if (!factoryContext.readiness.is_ready) {
-      setSubmitError("Clear profile and brand readiness blockers before starting a Report Factory run.");
+      setSubmitError(
+        "Clear profile and brand readiness blockers before starting a Report Factory run.",
+      );
       return;
     }
     if (!canSubmit) {
@@ -290,8 +307,7 @@ export default function NewReportPage() {
         `/approval-center?created=1&mode=api&runId=${encodeURIComponent(payload.run_id)}&tenantId=${encodeURIComponent(workspace.tenantId)}&projectId=${encodeURIComponent(workspace.projectId)}`,
       );
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown error during run creation.";
+      const message = error instanceof Error ? error.message : "Unknown error during run creation.";
       setSubmitError(`Run could not be created. ${message}`);
     } finally {
       setIsSubmitting(false);
@@ -310,7 +326,7 @@ export default function NewReportPage() {
     >
       <section className="mb-4 rounded-[1.75rem] border border-[color:var(--border)] bg-white/72 p-5 shadow-[var(--shadow-soft)]">
         <div className="mb-3 flex items-center gap-2">
-          <Settings2 className="h-4 w-4 text-muted-foreground" />
+          <Settings2 className="text-muted-foreground h-4 w-4" />
           <h2 className="text-base font-semibold">Workspace Bootstrap (Tenant + Project)</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -360,9 +376,11 @@ export default function NewReportPage() {
             />
           </label>
         </div>
-        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <div className="mt-4 grid gap-4">
           <div className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/50 p-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Company Profile</p>
+            <p className="text-muted-foreground text-xs tracking-[0.16em] uppercase">
+              Company Profile
+            </p>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <label className="space-y-1 text-sm md:col-span-2">
                 <span className="text-muted-foreground">Legal Entity Name</span>
@@ -419,17 +437,6 @@ export default function NewReportPage() {
                   }
                 />
               </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Tone / Style</span>
-                <input
-                  aria-label="Workspace Tone Name"
-                  className="border-input bg-background w-full rounded-md border px-3 py-2"
-                  value={workspaceSetup.toneName}
-                  onChange={(event) =>
-                    setWorkspaceSetup((prev) => ({ ...prev, toneName: event.target.value }))
-                  }
-                />
-              </label>
               <label className="space-y-1 text-sm md:col-span-2">
                 <span className="text-muted-foreground">CEO Message</span>
                 <textarea
@@ -448,93 +455,22 @@ export default function NewReportPage() {
                   className="border-input bg-background min-h-24 w-full rounded-md border px-3 py-2"
                   value={workspaceSetup.sustainabilityApproach}
                   onChange={(event) =>
-                    setWorkspaceSetup((prev) => ({ ...prev, sustainabilityApproach: event.target.value }))
+                    setWorkspaceSetup((prev) => ({
+                      ...prev,
+                      sustainabilityApproach: event.target.value,
+                    }))
                   }
                 />
               </label>
             </div>
           </div>
           <div className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/50 p-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Brand Kit</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Brand Name</span>
-                <input
-                  aria-label="Workspace Brand Name"
-                  className="border-input bg-background w-full rounded-md border px-3 py-2"
-                  value={workspaceSetup.brandName}
-                  onChange={(event) =>
-                    setWorkspaceSetup((prev) => ({ ...prev, brandName: event.target.value }))
-                  }
-                />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Logo URI</span>
-                <input
-                  aria-label="Workspace Logo URI"
-                  className="border-input bg-background w-full rounded-md border px-3 py-2"
-                  value={workspaceSetup.logoUri}
-                  onChange={(event) =>
-                    setWorkspaceSetup((prev) => ({ ...prev, logoUri: event.target.value }))
-                  }
-                />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Primary Color</span>
-                <input
-                  aria-label="Workspace Primary Color"
-                  className="border-input bg-background w-full rounded-md border px-3 py-2"
-                  value={workspaceSetup.primaryColor}
-                  onChange={(event) =>
-                    setWorkspaceSetup((prev) => ({ ...prev, primaryColor: event.target.value }))
-                  }
-                />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Secondary Color</span>
-                <input
-                  aria-label="Workspace Secondary Color"
-                  className="border-input bg-background w-full rounded-md border px-3 py-2"
-                  value={workspaceSetup.secondaryColor}
-                  onChange={(event) =>
-                    setWorkspaceSetup((prev) => ({ ...prev, secondaryColor: event.target.value }))
-                  }
-                />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Accent Color</span>
-                <input
-                  aria-label="Workspace Accent Color"
-                  className="border-input bg-background w-full rounded-md border px-3 py-2"
-                  value={workspaceSetup.accentColor}
-                  onChange={(event) =>
-                    setWorkspaceSetup((prev) => ({ ...prev, accentColor: event.target.value }))
-                  }
-                />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Heading Font</span>
-                <input
-                  aria-label="Workspace Heading Font"
-                  className="border-input bg-background w-full rounded-md border px-3 py-2"
-                  value={workspaceSetup.headingFont}
-                  onChange={(event) =>
-                    setWorkspaceSetup((prev) => ({ ...prev, headingFont: event.target.value }))
-                  }
-                />
-              </label>
-              <label className="space-y-1 text-sm md:col-span-2">
-                <span className="text-muted-foreground">Body Font</span>
-                <input
-                  aria-label="Workspace Body Font"
-                  className="border-input bg-background w-full rounded-md border px-3 py-2"
-                  value={workspaceSetup.bodyFont}
-                  onChange={(event) =>
-                    setWorkspaceSetup((prev) => ({ ...prev, bodyFont: event.target.value }))
-                  }
-                />
-              </label>
-            </div>
+            <p className="text-muted-foreground text-xs tracking-[0.16em] uppercase">Brand Kit</p>
+            <BrandKitStudio
+              workspace={workspace}
+              value={workspaceSetup}
+              onChange={setWorkspaceSetup}
+            />
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -545,7 +481,11 @@ export default function NewReportPage() {
             disabled={workspaceBusy}
             data-testid="workspace-bootstrap-button"
           >
-            {workspaceBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
+            {workspaceBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Settings2 className="h-4 w-4" />
+            )}
             {workspaceBusy ? "Configuring..." : "Bootstrap Workspace"}
           </Button>
           {workspace ? (
@@ -556,16 +496,13 @@ export default function NewReportPage() {
               tenant_id={workspace.tenantId} - project_id={workspace.projectId}
             </p>
           ) : (
-            <p className="text-xs text-muted-foreground" data-testid="workspace-context-status">
+            <p className="text-muted-foreground text-xs" data-testid="workspace-context-status">
               No workspace selected yet.
             </p>
           )}
         </div>
         {contextBusy && !factoryContext ? (
-          <p
-            className="mt-2 text-xs text-muted-foreground"
-            data-testid="factory-context-loading"
-        >
+          <p className="text-muted-foreground mt-2 text-xs" data-testid="factory-context-loading">
             Loading Report Factory context for the current workspace...
           </p>
         ) : null}
@@ -575,7 +512,7 @@ export default function NewReportPage() {
             data-testid="factory-context-panel"
           >
             <div>
-              <p className="text-xs uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">
+              <p className="text-xs tracking-[0.16em] text-emerald-700 uppercase dark:text-emerald-300">
                 Report Factory Context
               </p>
               <p className="mt-2 text-sm">
@@ -584,31 +521,40 @@ export default function NewReportPage() {
               <p className="mt-1 text-sm">
                 Provisioned connector count: <strong>{factoryContext.integrations.length}</strong>
               </p>
-              <div className="mt-3 rounded-xl border border-emerald-500/20 bg-background/80 px-3 py-3 text-sm" data-testid="factory-readiness-panel">
+              <div
+                className="bg-background/80 mt-3 rounded-xl border border-emerald-500/20 px-3 py-3 text-sm"
+                data-testid="factory-readiness-panel"
+              >
                 <p className="font-medium">
                   Readiness: {factoryContext.readiness.is_ready ? "ready" : "blocked"}
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Company profile: {factoryContext.readiness.company_profile_ready ? "ok" : "missing"} | Brand kit: {factoryContext.readiness.brand_kit_ready ? "ok" : "missing"}
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Company profile:{" "}
+                  {factoryContext.readiness.company_profile_ready ? "ok" : "missing"} | Brand kit:{" "}
+                  {factoryContext.readiness.brand_kit_ready ? "ok" : "missing"}
                 </p>
                 {factoryContext.readiness.blockers.length > 0 ? (
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  <ul className="text-muted-foreground mt-2 space-y-1 text-xs">
                     {factoryContext.readiness.blockers.map((blocker) => (
-                      <li key={`${blocker.code}-${blocker.message}`}>{blocker.code}: {blocker.message}</li>
+                      <li key={`${blocker.code}-${blocker.message}`}>
+                        {blocker.code}: {blocker.message}
+                      </li>
                     ))}
                   </ul>
                 ) : null}
               </div>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Connector Scope</p>
+              <p className="text-muted-foreground text-xs tracking-[0.16em] uppercase">
+                Connector Scope
+              </p>
               <div className="mt-2 grid gap-2 md:grid-cols-3">
                 {factoryContext.integrations.map((integration) => {
                   const checked = connectorScope.includes(integration.connectorType);
                   return (
                     <label
                       key={integration.id}
-                      className="flex items-center gap-3 rounded-xl border bg-background px-3 py-3 text-sm"
+                      className="bg-background flex items-center gap-3 rounded-xl border px-3 py-3 text-sm"
                     >
                       <input
                         type="checkbox"
@@ -624,11 +570,13 @@ export default function NewReportPage() {
                       />
                       <div className="min-w-0">
                         <p className="font-medium">{integration.displayName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {integration.supportTier} | {integration.healthBand} | {integration.status}
+                        <p className="text-muted-foreground text-xs">
+                          {integration.supportTier} | {integration.healthBand} |{" "}
+                          {integration.status}
                         </p>
-                        <p className="text-xs text-muted-foreground">
-                          {integration.certifiedVariant ?? "variant pending"} | agent {integration.assignedAgentStatus ?? "unassigned"}
+                        <p className="text-muted-foreground text-xs">
+                          {integration.certifiedVariant ?? "variant pending"} | agent{" "}
+                          {integration.assignedAgentStatus ?? "unassigned"}
                         </p>
                       </div>
                     </label>
@@ -637,7 +585,8 @@ export default function NewReportPage() {
               </div>
               {blockedSelectedIntegrations.length > 0 ? (
                 <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
-                  Launch stays locked until selected connectors are `active`, `certified`, and `green`. Use Integrations Setup to clear onboarding blockers.
+                  Launch stays locked until selected connectors are `active`, `certified`, and
+                  `green`. Use Integrations Setup to clear onboarding blockers.
                 </p>
               ) : null}
             </div>
@@ -649,7 +598,7 @@ export default function NewReportPage() {
         <section className="rounded-[1.75rem] border border-[color:var(--border)] bg-white/72 p-5 shadow-[var(--shadow-soft)]">
           <div className="mb-6 flex items-center justify-between">
             <div>
-              <p className="text-muted-foreground text-xs uppercase tracking-[0.16em]">
+              <p className="text-muted-foreground text-xs tracking-[0.16em] uppercase">
                 Step {step + 1} / {STEP_TITLES.length}
               </p>
               <h2 className="mt-1 text-xl font-semibold">{STEP_TITLES[step]}</h2>
@@ -678,9 +627,7 @@ export default function NewReportPage() {
                   aria-label="Tax / Registry ID"
                   className="border-input bg-background w-full rounded-md border px-3 py-2"
                   value={form.taxId}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, taxId: event.target.value }))
-                  }
+                  onChange={(event) => setForm((prev) => ({ ...prev, taxId: event.target.value }))}
                 />
               </label>
             </div>
@@ -827,9 +774,7 @@ export default function NewReportPage() {
             ) : (
               <Button
                 type="button"
-                onClick={() =>
-                  setStep((prev) => Math.min(STEP_TITLES.length - 1, prev + 1))
-                }
+                onClick={() => setStep((prev) => Math.min(STEP_TITLES.length - 1, prev + 1))}
                 data-testid="wizard-next-button"
               >
                 Next
@@ -846,7 +791,7 @@ export default function NewReportPage() {
 
           {pageError ? (
             <div
-              className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              className="border-destructive/40 bg-destructive/10 text-destructive mt-4 rounded-lg border px-3 py-2 text-sm"
               data-testid="new-report-error"
             >
               <div className="flex items-start gap-2">
@@ -875,7 +820,7 @@ export default function NewReportPage() {
               sizes="(min-width: 1024px) 35vw, 100vw"
               className="object-cover opacity-30"
             />
-            <div className="absolute inset-0 bg-gradient-to-b from-background/86 via-background/90 to-background/95" />
+            <div className="from-background/86 via-background/90 to-background/95 absolute inset-0 bg-gradient-to-b" />
           </div>
 
           <div className="relative">
@@ -884,7 +829,8 @@ export default function NewReportPage() {
             </p>
             <h3 className="text-base font-semibold">Run Summary</h3>
             <p className="text-muted-foreground mt-1 text-sm">
-              Inputs collected in the wizard are written directly into the run state and used for connector sync and retrieval planning.
+              Inputs collected in the wizard are written directly into the run state and used for
+              connector sync and retrieval planning.
             </p>
             <ul className="mt-4 space-y-3 text-sm">
               {STEP_TITLES.map((title, index) => (
@@ -892,7 +838,9 @@ export default function NewReportPage() {
                   <CheckCircle2
                     className={[
                       "h-4 w-4",
-                      index <= step ? "text-emerald-600 dark:text-emerald-300" : "text-muted-foreground",
+                      index <= step
+                        ? "text-emerald-600 dark:text-emerald-300"
+                        : "text-muted-foreground",
                     ].join(" ")}
                   />
                   {title}
@@ -909,7 +857,8 @@ export default function NewReportPage() {
               <p>Scope 3: {form.includeScope3 ? "Included" : "Excluded"}</p>
               <p>SLA: {form.approvalSlaDays} days</p>
               <p>
-                Workspace: {workspace ? `${workspace.tenantId} / ${workspace.projectId}` : "not selected"}
+                Workspace:{" "}
+                {workspace ? `${workspace.tenantId} / ${workspace.projectId}` : "not selected"}
               </p>
             </div>
           </div>

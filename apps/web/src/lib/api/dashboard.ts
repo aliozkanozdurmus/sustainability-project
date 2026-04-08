@@ -2,7 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 
 import type { WorkspaceContext } from "./client";
-import { createOpenApiClient, parseOpenApiResult, workspaceHeaders, workspaceQueryParams } from "./core";
+import {
+  createOpenApiClient,
+  parseOpenApiResult,
+  workspaceHeaders,
+  workspaceQueryParams,
+} from "./core";
 import { queryKeys } from "./query-keys";
 import { nullableStringSchema, toneSchema } from "./schema-helpers";
 
@@ -81,6 +86,34 @@ const activityItemSchema = z.object({
   occurred_at_utc: nullableStringSchema,
 });
 
+const notificationCategorySchema = z.enum([
+  "connector_sync",
+  "report_run",
+  "document_upload",
+  "document_extraction",
+  "document_indexing",
+  "verification",
+  "publish",
+  "system",
+]);
+
+const notificationSourceRefSchema = z.object({
+  run_id: nullableStringSchema.optional(),
+  document_id: nullableStringSchema.optional(),
+  integration_id: nullableStringSchema.optional(),
+  audit_event_id: nullableStringSchema.optional(),
+});
+
+const notificationItemSchema = z.object({
+  notification_id: z.string(),
+  title: z.string(),
+  detail: z.string(),
+  category: notificationCategorySchema,
+  status: toneSchema,
+  occurred_at_utc: nullableStringSchema,
+  source_ref: notificationSourceRefSchema.nullable().optional(),
+});
+
 const runQueueItemSchema = z.object({
   run_id: z.string(),
   report_run_status: z.string(),
@@ -121,8 +154,16 @@ export const dashboardOverviewResponseSchema = z.object({
   generated_at_utc: z.string(),
 });
 
+export const dashboardNotificationsResponseSchema = z.object({
+  items: z.array(notificationItemSchema),
+  generated_at_utc: z.string(),
+});
+
 export type DashboardOverviewResponse = z.infer<typeof dashboardOverviewResponseSchema>;
 export type DashboardTone = z.infer<typeof toneSchema>;
+export type DashboardNotificationCategory = z.infer<typeof notificationCategorySchema>;
+export type DashboardNotificationItem = z.infer<typeof notificationItemSchema>;
+export type DashboardNotificationsResponse = z.infer<typeof dashboardNotificationsResponseSchema>;
 
 export async function fetchDashboardOverview(
   workspace: WorkspaceContext,
@@ -142,10 +183,40 @@ export async function fetchDashboardOverview(
   );
 }
 
+export async function fetchDashboardNotifications(
+  workspace: WorkspaceContext,
+  signal?: AbortSignal,
+): Promise<DashboardNotificationsResponse> {
+  const client = createOpenApiClient();
+
+  return parseOpenApiResult(
+    await client.GET("/dashboard/notifications", {
+      params: {
+        query: {
+          ...workspaceQueryParams(workspace),
+          limit: 25,
+        },
+      },
+      headers: workspaceHeaders({ workspace }),
+      signal,
+    }),
+    dashboardNotificationsResponseSchema,
+  );
+}
+
 export function useDashboardOverviewQuery(workspace: WorkspaceContext | null) {
   return useQuery({
     queryKey: queryKeys.dashboard.overview(workspace),
     queryFn: ({ signal }) => fetchDashboardOverview(workspace!, signal),
     enabled: Boolean(workspace),
+  });
+}
+
+export function useDashboardNotificationsQuery(workspace: WorkspaceContext | null) {
+  return useQuery({
+    queryKey: queryKeys.dashboard.notifications(workspace),
+    queryFn: ({ signal }) => fetchDashboardNotifications(workspace!, signal),
+    enabled: Boolean(workspace),
+    refetchInterval: 30_000,
   });
 }

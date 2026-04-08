@@ -2,7 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
 import type { WorkspaceContext } from "./client";
-import { createOpenApiClient, parseOpenApiResult, workspaceHeaders, workspaceQueryParams } from "./core";
+import {
+  createOpenApiClient,
+  parseOpenApiResult,
+  requestJsonWithFetch,
+  workspaceHeaders,
+  workspaceQueryParams,
+} from "./core";
+import { buildApiHeaders } from "./client";
 import { queryKeys } from "./query-keys";
 import { healthBandSchema, nullableStringSchema, supportTierSchema } from "./schema-helpers";
 
@@ -86,6 +93,13 @@ export const workspaceBootstrapResponseSchema = workspaceContextResponseSchema.e
   project_created: z.boolean(),
 });
 
+export const brandKitLogoUploadResponseSchema = z.object({
+  logo_uri: z.string().trim().min(1),
+  filename: z.string().trim().min(1),
+  content_type: z.string().trim().min(1),
+  size_bytes: z.number().int().nonnegative(),
+});
+
 export const workspaceBootstrapRequestSchema = z.object({
   tenantHeader: z.string().trim().min(1),
   tenant_name: z.string().trim().min(2),
@@ -121,12 +135,21 @@ export const integrationSyncRequestSchema = z.object({
 });
 
 export const integrationSyncResponseSchema = z.object({}).passthrough();
+export const brandKitLogoUploadRequestSchema = z.object({
+  tenantHeader: z.string().trim().min(1),
+  tenantId: nullableStringSchema.optional(),
+  projectId: nullableStringSchema.optional(),
+});
 
 export type WorkspaceContextResponse = z.infer<typeof workspaceContextResponseSchema>;
 export type WorkspaceBootstrapResponse = z.infer<typeof workspaceBootstrapResponseSchema>;
 export type WorkspaceIntegrationSummary = z.infer<typeof workspaceIntegrationSummarySchema>;
 export type WorkspaceBootstrapRequest = z.infer<typeof workspaceBootstrapRequestSchema>;
 export type IntegrationSyncRequest = z.infer<typeof integrationSyncRequestSchema>;
+export type BrandKitLogoUploadResponse = z.infer<typeof brandKitLogoUploadResponseSchema>;
+export type BrandKitLogoUploadRequest = z.infer<typeof brandKitLogoUploadRequestSchema> & {
+  file: File;
+};
 
 export async function fetchWorkspaceContext(
   workspace: WorkspaceContext,
@@ -173,10 +196,37 @@ export async function bootstrapWorkspace(
   );
 }
 
-export async function syncIntegrations(
-  request: IntegrationSyncRequest,
-  signal?: AbortSignal,
-) {
+export async function uploadBrandKitLogo(
+  input: BrandKitLogoUploadRequest,
+): Promise<BrandKitLogoUploadResponse> {
+  if (!(input.file instanceof File)) {
+    throw new Error("Select a valid logo file before uploading.");
+  }
+
+  const parsed = brandKitLogoUploadRequestSchema.parse(input);
+  const formData = new FormData();
+  formData.append("file", input.file);
+  if (parsed.tenantId) {
+    formData.append("tenant_id", parsed.tenantId);
+  }
+  if (parsed.projectId) {
+    formData.append("project_id", parsed.projectId);
+  }
+
+  return requestJsonWithFetch(
+    "/catalog/brand-kit-logo",
+    {
+      method: "POST",
+      headers: buildApiHeaders(parsed.tenantHeader, {
+        includeJsonContentType: false,
+      }),
+      body: formData,
+    },
+    brandKitLogoUploadResponseSchema,
+  );
+}
+
+export async function syncIntegrations(request: IntegrationSyncRequest, signal?: AbortSignal) {
   const parsed = integrationSyncRequestSchema.parse(request);
   const client = createOpenApiClient();
 

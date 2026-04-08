@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { workspaceContextResponseSchema } from "./catalog";
-import { dashboardOverviewResponseSchema } from "./dashboard";
+import { dashboardNotificationsResponseSchema, dashboardOverviewResponseSchema } from "./dashboard";
 import { integrationDetailResponseSchema } from "./integrations";
 import { retrievalResponseSchema } from "./retrieval";
 import { runPackageStatusSchema } from "./runs";
@@ -89,6 +89,28 @@ describe("web api schemas", () => {
         },
       }).factory_readiness.is_ready,
     ).toBe(true);
+  });
+
+  it("parses representative dashboard notification responses", () => {
+    expect(
+      dashboardNotificationsResponseSchema.parse({
+        items: [
+          {
+            notification_id: "publish:1",
+            title: "Controlled publish queued",
+            detail: "queued • compose",
+            category: "publish",
+            status: "attention",
+            occurred_at_utc: "2026-04-08T10:00:00Z",
+            source_ref: {
+              run_id: "run-1",
+              audit_event_id: "audit-1",
+            },
+          },
+        ],
+        generated_at_utc: "2026-04-08T10:00:00Z",
+      }).items[0]?.category,
+    ).toBe("publish");
   });
 
   it("parses representative run package responses", () => {

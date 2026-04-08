@@ -79,11 +79,7 @@ export type WorkspaceSetupState = z.infer<typeof workspaceSetupStateSchema>;
 export type WorkspaceBootstrapForm = z.infer<typeof workspaceBootstrapFormSchema>;
 export type FactoryContext = z.infer<typeof factoryContextSchema>;
 
-export const STEP_TITLES = [
-  "Workspace Context",
-  "Report Scope",
-  "Governance",
-] as const;
+export const STEP_TITLES = ["Workspace Context", "Report Scope", "Governance"] as const;
 
 export const INITIAL_LAUNCHPAD_STATE: LaunchpadWizardState = {
   legalName: "",
@@ -111,7 +107,7 @@ export const INITIAL_WORKSPACE_SETUP: WorkspaceSetupState = {
   secondaryColor: "#262421",
   accentColor: "#d2b24a",
   headingFont: "Inter",
-  bodyFont: "Inter",
+  bodyFont: "Source Sans 3",
   toneName: "editorial-corporate",
 };
 
@@ -185,9 +181,7 @@ export function isConnectorLaunchReady(integration: {
   );
 }
 
-export function buildFactoryContext(
-  payload: WorkspaceContextResponse,
-): FactoryContext {
+export function buildFactoryContext(payload: WorkspaceContextResponse): FactoryContext {
   return factoryContextSchema.parse({
     companyProfileId: payload.company_profile.id,
     brandKitId: payload.brand_kit.id,
@@ -207,9 +201,7 @@ export function buildFactoryContext(
   });
 }
 
-export function buildWorkspaceSetupState(
-  payload: WorkspaceContextResponse,
-): WorkspaceSetupState {
+export function buildWorkspaceSetupState(payload: WorkspaceContextResponse): WorkspaceSetupState {
   return workspaceSetupStateSchema.parse({
     legalName: payload.company_profile.legal_name ?? "",
     sector: payload.company_profile.sector ?? "",

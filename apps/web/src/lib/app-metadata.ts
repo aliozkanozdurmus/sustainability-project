@@ -14,10 +14,7 @@ export function buildAppMetadata(
     title: APP_TITLE,
     description: APP_DESCRIPTION,
     icons: {
-      icon: [
-        { url: "/favicon.ico" },
-        { url: "/icon.png", type: "image/png", sizes: "512x512" },
-      ],
+      icon: [{ url: "/favicon.ico" }, { url: "/icon.png", type: "image/png", sizes: "512x512" }],
       shortcut: ["/favicon.ico"],
       apple: [{ url: "/apple-icon.png", type: "image/png", sizes: "180x180" }],
     },
@@ -30,7 +27,7 @@ export function buildAppMetadata(
           url: DEFAULT_BRAND_SOCIAL_CARD_PATH,
           width: 1200,
           height: 630,
-          alt: "Veni AI Sustainability Cockpit orbit-leaf brand card",
+          alt: "Veni AI Sustainability Cockpit brand card",
         },
       ],
     },
