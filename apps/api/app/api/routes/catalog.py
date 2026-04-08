@@ -32,6 +32,7 @@ from app.services.report_context import (
     is_brand_kit_configured,
     is_company_profile_configured,
 )
+from app.services.integrations import get_assigned_agent_status
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 CATALOG_MUTATION_ROLES = ("admin", "compliance_manager", "analyst")
@@ -91,18 +92,27 @@ def _to_brand_kit_response(brand_kit: BrandKit) -> BrandKitResponse:
     )
 
 
-def _to_integration_summary_response(integration: IntegrationConfig) -> IntegrationConfigSummaryResponse:
+def _to_integration_summary_response(db: Session, integration: IntegrationConfig) -> IntegrationConfigSummaryResponse:
     return IntegrationConfigSummaryResponse(
         id=integration.id,
         connector_type=integration.connector_type,
         display_name=integration.display_name,
         status=integration.status,
+        support_tier=integration.support_tier,
+        certified_variant=integration.certified_variant,
+        product_version=integration.product_version,
+        health_band=integration.health_band,
+        last_discovered_at=integration.last_discovered_at.isoformat() if integration.last_discovered_at else None,
+        last_preflight_at=integration.last_preflight_at.isoformat() if integration.last_preflight_at else None,
+        last_preview_sync_at=integration.last_preview_sync_at.isoformat() if integration.last_preview_sync_at else None,
         last_synced_at=integration.last_synced_at.isoformat() if integration.last_synced_at else None,
+        assigned_agent_status=get_assigned_agent_status(db=db, integration=integration),
     )
 
 
 def _build_workspace_context_response(
     *,
+    db: Session,
     tenant: Tenant,
     project: Project,
     company_profile: CompanyProfile,
@@ -119,7 +129,7 @@ def _build_workspace_context_response(
         project=_to_project_response(project),
         company_profile=_to_company_profile_response(company_profile),
         brand_kit=_to_brand_kit_response(brand_kit),
-        integrations=[_to_integration_summary_response(item) for item in integrations],
+        integrations=[_to_integration_summary_response(db, item) for item in integrations],
         blueprint_version=blueprint_version,
         factory_readiness=FactoryReadinessResponse(**readiness),
     )
@@ -280,6 +290,7 @@ async def bootstrap_workspace(
     db.refresh(brand_kit)
 
     workspace_context = _build_workspace_context_response(
+        db=db,
         tenant=tenant,
         project=project,
         company_profile=company_profile,
@@ -330,6 +341,7 @@ async def get_workspace_context(
     db.refresh(company_profile)
     db.refresh(brand_kit)
     return _build_workspace_context_response(
+        db=db,
         tenant=tenant,
         project=project,
         company_profile=company_profile,

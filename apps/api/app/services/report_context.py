@@ -10,6 +10,15 @@ from sqlalchemy.orm import Session
 
 from app.core.settings import settings
 from app.models.core import BrandKit, CompanyProfile, IntegrationConfig, Project, ReportBlueprint, Tenant
+from app.services.connector_contract import (
+    SUPPORT_MATRIX_VERSION,
+    build_default_connection_profile,
+    build_default_demo_sample_payload,
+    build_default_normalization_policy,
+    get_default_product_version,
+    get_default_variant_code,
+    get_support_definition,
+)
 
 
 DEFAULT_BLUEPRINT_TEMPLATE = {
@@ -205,18 +214,42 @@ def _default_blueprint(*, tenant: Tenant, project: Project) -> ReportBlueprint:
 
 
 def _default_connector(*, tenant: Tenant, project: Project, definition: dict[str, str]) -> IntegrationConfig:
+    connector_type = definition["connector_type"]
+    support_definition = get_support_definition(connector_type)
     return IntegrationConfig(
         tenant_id=tenant.id,
         project_id=project.id,
-        connector_type=definition["connector_type"],
+        connector_type=connector_type,
         display_name=definition["display_name"],
         auth_mode=definition["auth_mode"],
         base_url=definition["base_url"],
         resource_path=definition["resource_path"],
         status="active",
         mapping_version="v1",
-        connection_payload={"auto_provisioned": True},
-        sample_payload={},
+        certified_variant=get_default_variant_code(connector_type),
+        product_version=get_default_product_version(connector_type),
+        support_tier=str(support_definition.get("support_tier", "beta")),
+        connectivity_mode=str(support_definition.get("connectivity_mode", "customer_network_agent")),
+        credential_ref=f"local-demo/{connector_type}",
+        health_band="green",
+        health_status_json={
+            "score": 96,
+            "band": "green",
+            "operator_message": "Demo connector is provisioned and ready for onboarding flows.",
+            "support_hint": "Replace the demo topology and credential reference when connecting to a live ERP.",
+            "recommended_action": "Use Integrations Setup to validate a live endpoint before production launch.",
+            "retryable": True,
+            "support_matrix_version": SUPPORT_MATRIX_VERSION,
+        },
+        normalization_policy_json=build_default_normalization_policy(
+            connector_type,
+            reporting_currency=project.reporting_currency,
+        ),
+        connection_payload={
+            "auto_provisioned": True,
+            **build_default_connection_profile(connector_type),
+        },
+        sample_payload=build_default_demo_sample_payload(connector_type),
     )
 
 

@@ -333,6 +333,30 @@ class ReportArtifact(IdTimestampMixin, Base):
     artifact_metadata_json: Mapped[dict | None] = mapped_column(JSON)
 
 
+class ConnectorAgent(IdTimestampMixin, Base):
+    __tablename__ = "connector_agents"
+
+    tenant_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        index=True,
+    )
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        index=True,
+    )
+    agent_key: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    agent_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="registered", nullable=False)
+    version: Mapped[str | None] = mapped_column(String(64))
+    hostname: Mapped[str | None] = mapped_column(String(255))
+    supported_connectors_json: Mapped[list | None] = mapped_column(JSON)
+    capabilities_json: Mapped[list | None] = mapped_column(JSON)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON)
+    heartbeat_payload_json: Mapped[dict | None] = mapped_column(JSON)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class IntegrationConfig(IdTimestampMixin, Base):
     __tablename__ = "integration_configs"
 
@@ -353,9 +377,24 @@ class IntegrationConfig(IdTimestampMixin, Base):
     resource_path: Mapped[str | None] = mapped_column(String(512))
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
     mapping_version: Mapped[str] = mapped_column(String(64), default="v1", nullable=False)
+    certified_variant: Mapped[str | None] = mapped_column(String(128))
+    product_version: Mapped[str | None] = mapped_column(String(64))
+    support_tier: Mapped[str] = mapped_column(String(32), default="beta", nullable=False)
+    connectivity_mode: Mapped[str] = mapped_column(String(64), default="customer_network_agent", nullable=False)
+    credential_ref: Mapped[str | None] = mapped_column(String(255))
+    health_band: Mapped[str] = mapped_column(String(16), default="red", nullable=False)
+    health_status_json: Mapped[dict | None] = mapped_column(JSON)
+    assigned_agent_id: Mapped[str | None] = mapped_column(
+        ForeignKey("connector_agents.id", ondelete="SET NULL"),
+        index=True,
+    )
+    normalization_policy_json: Mapped[dict | None] = mapped_column(JSON)
     connection_payload: Mapped[dict | None] = mapped_column(JSON)
     sample_payload: Mapped[dict | None] = mapped_column(JSON)
     last_cursor: Mapped[str | None] = mapped_column(String(255))
+    last_discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_preflight_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_preview_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -388,6 +427,80 @@ class ConnectorSyncJob(IdTimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ConnectorOperationRun(IdTimestampMixin, Base):
+    __tablename__ = "connector_operation_runs"
+
+    integration_config_id: Mapped[str] = mapped_column(
+        ForeignKey("integration_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assigned_agent_id: Mapped[str | None] = mapped_column(
+        ForeignKey("connector_agents.id", ondelete="SET NULL"),
+        index=True,
+    )
+    requested_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+    )
+    connector_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    replay_mode: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
+    current_stage: Mapped[str] = mapped_column(String(64), default="queued", nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    operator_message: Mapped[str | None] = mapped_column(Text)
+    support_hint: Mapped[str | None] = mapped_column(Text)
+    recommended_action: Mapped[str | None] = mapped_column(Text)
+    retryable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    result_payload_json: Mapped[dict | None] = mapped_column(JSON)
+    diagnostics_json: Mapped[dict | None] = mapped_column(JSON)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ConnectorArtifact(IdTimestampMixin, Base):
+    __tablename__ = "connector_artifacts"
+
+    integration_config_id: Mapped[str] = mapped_column(
+        ForeignKey("integration_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    connector_operation_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("connector_operation_runs.id", ondelete="SET NULL"),
+        index=True,
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    artifact_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    filename: Mapped[str] = mapped_column(String(512), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    storage_uri: Mapped[str] = mapped_column(String(1024), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    checksum: Mapped[str | None] = mapped_column(String(128))
+    artifact_metadata_json: Mapped[dict | None] = mapped_column(JSON)
 
 
 class CanonicalFact(IdTimestampMixin, Base):

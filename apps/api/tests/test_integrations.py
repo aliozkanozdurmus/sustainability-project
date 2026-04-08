@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.settings import settings
 from app.db.base import Base
-from app.models.core import CanonicalFact, IntegrationConfig, Project, Tenant
+from app.db.session import get_db
+from app.main import app
+from app.models.core import CanonicalFact, ConnectorArtifact, IntegrationConfig, Project, Tenant
 from app.services.integrations import run_connector_sync
+from app.services.report_context import ensure_project_report_context
 
 
 def _seed_tenant_and_project(db: Session) -> tuple[str, str]:
@@ -24,6 +31,21 @@ def _seed_tenant_and_project(db: Session) -> tuple[str, str]:
     db.add(project)
     db.commit()
     return tenant.id, project.id
+
+
+def _seed_workspace_with_default_connectors(db: Session) -> tuple[str, str, dict[str, str]]:
+    tenant_id, project_id = _seed_tenant_and_project(db)
+    tenant = db.get(Tenant, tenant_id)
+    project = db.get(Project, project_id)
+    assert tenant is not None
+    assert project is not None
+    _company_profile, _brand_kit, _blueprint, integrations = ensure_project_report_context(
+        db=db,
+        tenant=tenant,
+        project=project,
+    )
+    db.commit()
+    return tenant_id, project_id, {item.connector_type: item.id for item in integrations}
 
 
 def test_run_connector_sync_normalizes_sap_odata_payload_and_delta_token(tmp_path) -> None:
@@ -187,4 +209,111 @@ def test_run_connector_sync_normalizes_netsis_rest_cursor_payload(tmp_path) -> N
             assert fact.trace_ref == "netsis://supplier-coverage/2025"
             assert fact.source_system == "netsis_rest"
     finally:
+        engine.dispose()
+
+
+def test_preflight_endpoint_returns_connector_specific_auth_error_when_credential_ref_is_missing(
+    tmp_path: Path,
+) -> None:
+    db_file = tmp_path / "test_integrations_preflight_route.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+
+    try:
+        with TestingSessionLocal() as session:
+            tenant_id, project_id, connector_ids = _seed_workspace_with_default_connectors(session)
+            integration = session.get(IntegrationConfig, connector_ids["sap_odata"])
+            assert integration is not None
+            integration.credential_ref = None
+            session.commit()
+
+        response = client.post(
+            f"/integrations/connectors/{connector_ids['sap_odata']}/preflight",
+            json={"tenant_id": tenant_id, "project_id": project_id},
+            headers={"x-user-role": "analyst"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "failed"
+        assert body["error_code"] == "SAP_AUTH_PREFLIGHT_FAILED"
+        assert body["health_band"] == "red"
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_preview_sync_endpoint_keeps_production_facts_empty_and_support_bundle_creates_artifact(
+    tmp_path: Path,
+) -> None:
+    db_file = tmp_path / "test_integrations_preview_bundle.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
+
+    try:
+        with TestingSessionLocal() as session:
+            tenant_id, project_id, connector_ids = _seed_workspace_with_default_connectors(session)
+            sap_connector_id = connector_ids["sap_odata"]
+            assert session.query(CanonicalFact).count() == 0
+
+        preview_response = client.post(
+            f"/integrations/connectors/{sap_connector_id}/preview-sync",
+            json={"tenant_id": tenant_id, "project_id": project_id, "limit": 20},
+            headers={"x-user-role": "analyst"},
+        )
+        assert preview_response.status_code == 200
+        preview_body = preview_response.json()
+        assert preview_body["status"] == "completed"
+        assert preview_body["result"]["writes_production_facts"] is False
+        assert preview_body["result"]["preview_row_count"] >= 1
+
+        support_bundle_response = client.post(
+            f"/integrations/connectors/{sap_connector_id}/support-bundle",
+            json={"tenant_id": tenant_id, "project_id": project_id},
+            headers={"x-user-role": "analyst"},
+        )
+        assert support_bundle_response.status_code == 200
+        support_bundle_body = support_bundle_response.json()
+        assert support_bundle_body["artifact"] is not None
+
+        download_response = client.get(
+            support_bundle_body["artifact"]["download_path"],
+            headers={"x-user-role": "analyst"},
+        )
+        assert download_response.status_code == 200
+        assert len(download_response.content) > 0
+
+        with TestingSessionLocal() as session:
+            assert session.query(CanonicalFact).count() == 0
+            assert session.query(ConnectorArtifact).count() == 1
+            integration = session.get(IntegrationConfig, sap_connector_id)
+            assert integration is not None
+            assert integration.last_preview_sync_at is not None
+            assert integration.status == "active"
+    finally:
+        settings.local_blob_root = original_local_blob_root
+        app.dependency_overrides.clear()
         engine.dispose()

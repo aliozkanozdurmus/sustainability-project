@@ -21,6 +21,7 @@ from app.models.core import (
     ClaimCitation,
     Chunk,
     CompanyProfile,
+    IntegrationConfig,
     Project,
     ReportArtifact,
     ReportRun,
@@ -66,6 +67,7 @@ from app.services.report_factory import (
     _to_artifact_response_payload,
 )
 from app.services.job_queue import JobQueueService, get_job_queue_service
+from app.services.integrations import connector_ready_for_launch, normalize_connector_type
 from app.services.report_pdf import download_report_artifact_bytes
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -959,6 +961,44 @@ async def create_run(
         project=project,
         payload=payload,
     )
+    normalized_connector_scope = list(
+        dict.fromkeys(
+            normalize_connector_type(item)
+            for item in (payload.connector_scope or ["sap_odata", "logo_tiger_sql_view", "netsis_rest"])
+        )
+    )
+    integrations = db.scalars(
+        select(IntegrationConfig).where(
+            IntegrationConfig.project_id == payload.project_id,
+            IntegrationConfig.tenant_id == payload.tenant_id,
+            IntegrationConfig.connector_type.in_(normalized_connector_scope),
+        )
+    ).all()
+    integration_by_type = {integration.connector_type: integration for integration in integrations}
+    missing_connectors = [item for item in normalized_connector_scope if item not in integration_by_type]
+    blocked_connectors = [
+        {
+            "connector_type": integration.connector_type,
+            "display_name": integration.display_name,
+            "support_tier": integration.support_tier,
+            "health_band": integration.health_band,
+            "status": integration.status,
+            "operator_message": (integration.health_status_json or {}).get("operator_message"),
+            "recommended_action": (integration.health_status_json or {}).get("recommended_action"),
+        }
+        for integration in integrations
+        if not connector_ready_for_launch(integration)
+    ]
+    if missing_connectors or blocked_connectors:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "CONNECTOR_ONBOARDING_INCOMPLETE",
+                "message": "Run launch only opens for certified connectors with green health.",
+                "missing_connectors": missing_connectors,
+                "blocked_connectors": blocked_connectors,
+            },
+        )
     now = datetime.now(timezone.utc)
     report_run = ReportRun(
         tenant_id=payload.tenant_id,
@@ -969,7 +1009,7 @@ async def create_run(
         started_at=now,
         publish_ready=False,
         report_blueprint_version=blueprint.version,
-        connector_scope=payload.connector_scope or ["sap_odata", "logo_tiger_sql_view", "netsis_rest"],
+        connector_scope=normalized_connector_scope,
         package_status="not_started",
         visual_generation_status="not_started",
     )

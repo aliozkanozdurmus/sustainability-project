@@ -81,6 +81,11 @@ type WorkspaceContextResponse = {
     connector_type: string;
     display_name: string;
     status: string;
+    support_tier: "certified" | "beta" | "unsupported";
+    certified_variant: string | null;
+    product_version: string | null;
+    health_band: "green" | "amber" | "red";
+    assigned_agent_status: string | null;
   }>;
   blueprint_version: string;
   factory_readiness: {
@@ -113,6 +118,11 @@ type FactoryContext = {
     connectorType: string;
     displayName: string;
     status: string;
+    supportTier: "certified" | "beta" | "unsupported";
+    certifiedVariant: string | null;
+    productVersion: string | null;
+    healthBand: "green" | "amber" | "red";
+    assignedAgentStatus: string | null;
   }>;
   readiness: WorkspaceContextResponse["factory_readiness"];
 };
@@ -229,6 +239,18 @@ function completionScore(form: WizardState): number {
   return Math.round((done / checklist.length) * 100);
 }
 
+function isConnectorLaunchReady(integration: {
+  status: string;
+  supportTier: "certified" | "beta" | "unsupported";
+  healthBand: "green" | "amber" | "red";
+}) {
+  return (
+    integration.status === "active" &&
+    integration.supportTier === "certified" &&
+    integration.healthBand === "green"
+  );
+}
+
 export default function NewReportPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -256,6 +278,17 @@ export default function NewReportPage() {
   ]);
   const score = useMemo(() => completionScore(form), [form]);
   const isLastStep = step === STEP_TITLES.length - 1;
+  const selectedIntegrations = useMemo(
+    () =>
+      factoryContext?.integrations.filter((item) =>
+        connectorScope.includes(item.connectorType),
+      ) ?? [],
+    [connectorScope, factoryContext],
+  );
+  const blockedSelectedIntegrations = useMemo(
+    () => selectedIntegrations.filter((item) => !isConnectorLaunchReady(item)),
+    [selectedIntegrations],
+  );
 
   const applyWorkspaceContext = useCallback(
     (payload: WorkspaceContextResponse) => {
@@ -284,6 +317,11 @@ export default function NewReportPage() {
           connectorType: item.connector_type,
           displayName: item.display_name,
           status: item.status,
+          supportTier: item.support_tier,
+          certifiedVariant: item.certified_variant,
+          productVersion: item.product_version,
+          healthBand: item.health_band,
+          assignedAgentStatus: item.assigned_agent_status,
         })),
         readiness: payload.factory_readiness,
       });
@@ -377,6 +415,8 @@ export default function NewReportPage() {
     Boolean(workspace) &&
     Boolean(factoryContext) &&
     Boolean(factoryContext?.readiness.is_ready) &&
+    selectedIntegrations.length > 0 &&
+    blockedSelectedIntegrations.length === 0 &&
     !contextBusy;
 
   async function handleBootstrapWorkspace() {
@@ -460,14 +500,24 @@ export default function NewReportPage() {
       setSubmitError("Complete the required launch fields before creating the run.");
       return;
     }
+    if (selectedIntegrations.length === 0) {
+      setSubmitError("Select at least one ERP connector.");
+      return;
+    }
+    if (blockedSelectedIntegrations.length > 0) {
+      setSubmitError(
+        `Selected connectors are not launch-ready: ${blockedSelectedIntegrations
+          .map((item) => item.displayName)
+          .join(", ")}. Complete Integrations Setup first.`,
+      );
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       const apiBase = getApiBaseUrl();
       const frameworkTarget = resolveFrameworkTargets(form);
-      const activeConnectorIds = factoryContext.integrations
-        .filter((item) => connectorScope.includes(item.connectorType))
-        .map((item) => item.id);
+      const activeConnectorIds = selectedIntegrations.map((item) => item.id);
 
       if (activeConnectorIds.length === 0) {
         setSubmitError("Select at least one active ERP connector.");
@@ -528,7 +578,10 @@ export default function NewReportPage() {
       activePath="/reports/new"
       title="Report Factory Launchpad"
       subtitle="Configure the tenant workspace, align brand and company identity, and launch a governed sustainability reporting run."
-      actions={[{ href: "/dashboard", label: "Back to Dashboard" }]}
+      actions={[
+        { href: "/integrations/setup", label: "Open Integrations Setup" },
+        { href: "/dashboard", label: "Back to Dashboard" },
+      ]}
     >
       <section className="mb-4 rounded-[1.75rem] border border-[color:var(--border)] bg-white/72 p-5 shadow-[var(--shadow-soft)]">
         <div className="mb-3 flex items-center gap-2">
@@ -830,7 +883,7 @@ export default function NewReportPage() {
                   return (
                     <label
                       key={integration.id}
-                      className="flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm"
+                      className="flex items-center gap-3 rounded-xl border bg-background px-3 py-3 text-sm"
                     >
                       <input
                         type="checkbox"
@@ -844,11 +897,24 @@ export default function NewReportPage() {
                           });
                         }}
                       />
-                      <span>{integration.displayName}</span>
+                      <div className="min-w-0">
+                        <p className="font-medium">{integration.displayName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {integration.supportTier} | {integration.healthBand} | {integration.status}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {integration.certifiedVariant ?? "variant pending"} | agent {integration.assignedAgentStatus ?? "unassigned"}
+                        </p>
+                      </div>
                     </label>
                   );
                 })}
               </div>
+              {blockedSelectedIntegrations.length > 0 ? (
+                <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+                  Launch stays locked until selected connectors are `active`, `certified`, and `green`. Use Integrations Setup to clear onboarding blockers.
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}

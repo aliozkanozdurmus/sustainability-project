@@ -43,6 +43,7 @@ from app.schemas.dashboard import (
     ScheduleItem,
 )
 from app.services.report_context import build_report_factory_readiness
+from app.services.integrations import connector_ready_for_launch, get_assigned_agent_status
 
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -461,6 +462,12 @@ async def get_dashboard_overview(
             display_name=integration.display_name,
             status=integration.status,
             auth_mode=integration.auth_mode,
+            support_tier=integration.support_tier,
+            certified_variant=integration.certified_variant,
+            health_band=integration.health_band,
+            last_preflight_at_utc=_as_iso(integration.last_preflight_at),
+            last_preview_sync_at_utc=_as_iso(integration.last_preview_sync_at),
+            assigned_agent_status=get_assigned_agent_status(db=db, integration=integration),
             last_synced_at_utc=_as_iso(integration.last_synced_at),
             job_status=latest_job_by_connector.get(integration.id).status if latest_job_by_connector.get(integration.id) else None,
             current_stage=latest_job_by_connector.get(integration.id).current_stage if latest_job_by_connector.get(integration.id) else None,
@@ -470,8 +477,10 @@ async def get_dashboard_overview(
             freshness_hours=_hours_since(integration.last_synced_at),
             status_tone=(
                 "good"
-                if integration.status == "active" and integration.last_synced_at is not None
+                if connector_ready_for_launch(integration)
                 else "attention"
+                if integration.health_band == "amber"
+                else "critical"
             ),
         )
         for integration in integrations

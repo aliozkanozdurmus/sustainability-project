@@ -2,9 +2,17 @@
 
 // Bu bilesen, app shell arayuz parcasini kurar.
 
-import { useMemo, useState, type ReactNode } from "react";
+import {
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   Bell,
@@ -17,8 +25,8 @@ import {
   Menu,
   Search,
   SearchCode,
+  Settings2,
   ShieldCheck,
-  Sparkles,
   X,
 } from "lucide-react";
 
@@ -36,6 +44,13 @@ type HeaderAction = {
   label: string;
 };
 
+type SearchTarget = NavItem & {
+  groupLabel: string;
+  description: string;
+  keywords: string[];
+  testId: string;
+};
+
 const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Workspace",
@@ -44,6 +59,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Factory",
     items: [
+      { href: "/integrations/setup", label: "Integrations", icon: Settings2 },
       { href: "/reports/new", label: "Report Factory", icon: FileStack },
       { href: "/evidence-center", label: "Evidence", icon: Database },
       { href: "/retrieval-lab", label: "Retrieval Lab", icon: SearchCode },
@@ -51,6 +67,52 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     ],
   },
 ];
+
+const SEARCH_TARGET_METADATA: Record<
+  string,
+  { description: string; keywords: string[] }
+> = {
+  "/dashboard": {
+    description: "Connector freshness, KPI strip, and package lane overview",
+    keywords: ["dashboard", "overview", "kpi", "connector", "connectors", "pipeline", "genel bakis"],
+  },
+  "/reports/new": {
+    description: "Create a new reporting run with blueprint, profile, and connector scope",
+    keywords: ["report", "new report", "run", "create", "factory", "rapor", "raporlama", "yeni rapor"],
+  },
+  "/integrations/setup": {
+    description: "Discover, preflight, preview, and activate certified ERP connectors",
+    keywords: ["integrations", "erp", "setup", "connector", "sap", "logo", "netsis", "onboarding"],
+  },
+  "/evidence-center": {
+    description: "Inspect evidence inventory, source documents, and extraction quality",
+    keywords: ["evidence", "document", "citation", "source", "artifact", "kanit", "dokuman", "atif"],
+  },
+  "/retrieval-lab": {
+    description: "Run hybrid evidence search with semantic diagnostics and scoring",
+    keywords: ["retrieval", "search", "semantic", "hybrid", "vector", "arama", "erişim", "lab"],
+  },
+  "/approval-center": {
+    description: "Review run queue, package progress, and controlled publish readiness",
+    keywords: ["approval", "publish", "review", "runs", "package", "artifacts", "onay", "yayin", "kuyruk"],
+  },
+};
+
+const SEARCH_TARGETS: SearchTarget[] = NAV_GROUPS.flatMap((group) =>
+  group.items.map((item) => {
+    const metadata = SEARCH_TARGET_METADATA[item.href] ?? {
+      description: `${group.label} surface`,
+      keywords: [],
+    };
+    return {
+      ...item,
+      groupLabel: group.label,
+      description: metadata.description,
+      keywords: metadata.keywords,
+      testId: `global-search-result-${item.href.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "root"}`,
+    };
+  }),
+);
 
 function isActivePath(activePath: string, href: string): boolean {
   if (href === "/dashboard") {
@@ -69,6 +131,53 @@ function breadcrumbsFromPath(activePath: string) {
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join(" "),
     );
+}
+
+function normalizeSearchValue(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function scoreSearchTarget(target: SearchTarget, normalizedQuery: string): number {
+  if (!normalizedQuery) {
+    return 1;
+  }
+
+  const label = normalizeSearchValue(target.label);
+  const description = normalizeSearchValue(target.description);
+  const groupLabel = normalizeSearchValue(target.groupLabel);
+  const href = normalizeSearchValue(target.href);
+  const keywords = target.keywords.map((keyword) => normalizeSearchValue(keyword));
+  const combined = [label, description, groupLabel, href, ...keywords].join(" ");
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+
+  let score = 0;
+
+  if (label === normalizedQuery) {
+    score = Math.max(score, 120);
+  }
+  if (keywords.includes(normalizedQuery)) {
+    score = Math.max(score, 110);
+  }
+  if (label.startsWith(normalizedQuery)) {
+    score = Math.max(score, 100);
+  }
+  if (keywords.some((keyword) => keyword.startsWith(normalizedQuery))) {
+    score = Math.max(score, 92);
+  }
+  if (label.includes(normalizedQuery)) {
+    score = Math.max(score, 84);
+  }
+  if (keywords.some((keyword) => keyword.includes(normalizedQuery))) {
+    score = Math.max(score, 72);
+  }
+  if (description.includes(normalizedQuery) || groupLabel.includes(normalizedQuery) || href.includes(normalizedQuery)) {
+    score = Math.max(score, 64);
+  }
+  if (tokens.length > 1 && tokens.every((token) => combined.includes(token))) {
+    score = Math.max(score, 58);
+  }
+
+  return score;
 }
 
 function NavigationColumn({
@@ -143,10 +252,6 @@ function SidebarContent({
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          <span className="pill-dark">Factory light</span>
-          <span className="pill-surface">Inter only</span>
-        </div>
       </div>
 
       <div className="mt-8 flex-1">
@@ -211,9 +316,65 @@ export function AppShell({
   actions?: HeaderAction[];
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const breadcrumbs = useMemo(() => breadcrumbsFromPath(pathname || activePath), [activePath, pathname]);
+  const normalizedSearchQuery = normalizeSearchValue(deferredSearchQuery);
+  const searchResults = useMemo(() => {
+    return SEARCH_TARGETS.map((target) => ({ target, score: scoreSearchTarget(target, normalizedSearchQuery) }))
+      .filter((entry) => entry.score > 0)
+      .sort((left, right) => right.score - left.score || left.target.label.localeCompare(right.target.label))
+      .slice(0, 5)
+      .map((entry) => entry.target);
+  }, [normalizedSearchQuery]);
+
+  function navigateToSearchTarget(target: SearchTarget) {
+    setSearchOpen(false);
+    setSearchQuery("");
+    startTransition(() => {
+      router.push(target.href);
+    });
+  }
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        searchContainerRef.current &&
+        event.target instanceof Node &&
+        !searchContainerRef.current.contains(event.target)
+      ) {
+        setSearchOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "f") {
+        event.preventDefault();
+        setSearchOpen(true);
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        setSearchOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-canvas px-3 py-4 md:px-5 md:py-6">
@@ -226,35 +387,96 @@ export function AppShell({
           <section className="content-surface min-h-[calc(100vh-4rem)] p-3 md:p-4">
             <div className="rounded-[1.75rem] border border-white/70 bg-white/52 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.84)]">
               <div className="flex items-center gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                className="xl:hidden"
-                onClick={() => setMobileOpen(true)}
-                aria-label="Open navigation"
-              >
-                <Menu className="size-4" />
-              </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  className="xl:hidden"
+                  onClick={() => setMobileOpen(true)}
+                  aria-label="Open navigation"
+                >
+                  <Menu className="size-4" />
+                </Button>
 
-                <div className="relative flex-1">
+                <div ref={searchContainerRef} className="relative flex-1">
                   <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[color:var(--foreground-muted)]" />
                   <input
+                    ref={searchInputRef}
                     type="search"
                     placeholder="Search runs, artifacts, connectors"
+                    value={searchQuery}
+                    data-testid="global-search-input"
+                    autoComplete="off"
+                    spellCheck={false}
                     className="search-field"
+                    aria-label="Global search"
+                    onFocus={() => setSearchOpen(true)}
+                    onChange={(event) => {
+                      setSearchQuery(event.target.value);
+                      setSearchOpen(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && searchResults.length > 0) {
+                        event.preventDefault();
+                        navigateToSearchTarget(searchResults[0]);
+                      }
+                    }}
                   />
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-[rgba(23,22,19,0.06)] bg-[color:var(--surface)] px-2 py-1 text-[10px] font-semibold text-[color:var(--foreground-muted)]">
                     <Command className="mr-1 inline size-3" />
                     F
                   </span>
+
+                  {searchOpen ? (
+                    <div
+                      id="global-search-results"
+                      data-testid="global-search-results"
+                      className="absolute inset-x-0 top-[calc(100%+0.55rem)] z-30 rounded-[1.5rem] border border-[rgba(23,22,19,0.08)] bg-white/96 p-2 shadow-[0_18px_48px_rgba(32,29,23,0.12)] backdrop-blur-md"
+                    >
+                      {searchResults.length > 0 ? (
+                        <div className="space-y-1">
+                          {searchResults.map((target, index) => {
+                            const Icon = target.icon;
+                            const current = isActivePath(pathname || activePath, target.href);
+                            return (
+                              <button
+                                key={target.href}
+                                type="button"
+                                data-testid={target.testId}
+                                className="flex w-full items-start gap-3 rounded-[1.15rem] px-3 py-2.5 text-left transition hover:bg-[color:var(--surface)]"
+                                onClick={() => navigateToSearchTarget(target)}
+                              >
+                                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full border border-[rgba(23,22,19,0.06)] bg-[color:var(--surface)] text-[color:var(--accent-strong)]">
+                                  <Icon className="size-4" />
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="flex items-center gap-2">
+                                    <span className="text-[13px] font-semibold text-foreground">{target.label}</span>
+                                    {current ? <span className="pill-surface">Current</span> : null}
+                                    {index === 0 ? <span className="pill-dark">Enter</span> : null}
+                                  </span>
+                                  <span className="mt-1 block text-[12px] leading-5 text-[color:var(--foreground-soft)]">
+                                    {target.description}
+                                  </span>
+                                  <span className="mt-1.5 block text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--foreground-muted)]">
+                                    {target.groupLabel}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="rounded-[1.15rem] bg-[color:var(--surface)] px-3 py-3 text-[12px] text-[color:var(--foreground-soft)]">
+                          No matching surface for <span className="font-semibold">{searchQuery.trim()}</span>.
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
 
                 <Button type="button" variant="outline" size="icon-sm" aria-label="Notifications">
                   <Bell className="size-4" />
-                </Button>
-                <Button type="button" variant="outline" size="icon-sm" aria-label="Workspace status">
-                  <Sparkles className="size-4" />
                 </Button>
 
                 <div className="hidden items-center gap-3 rounded-full border border-[rgba(23,22,19,0.06)] bg-white/86 px-2 py-1.5 shadow-[0_10px_24px_rgba(31,29,26,0.05)] md:flex">
@@ -263,7 +485,7 @@ export function AppShell({
                   </div>
                   <div className="pr-2">
                     <p className="text-[12px] font-semibold text-foreground">Admin Operator</p>
-                    <p className="text-[11px] text-[color:var(--foreground-muted)]">publish@veni.ai</p>
+                    <p className="text-[11px] text-[color:var(--foreground-muted)]">ali.ozdurmus1@gmail.com</p>
                   </div>
                 </div>
               </div>

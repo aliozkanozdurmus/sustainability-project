@@ -1,0 +1,11 @@
+[project]
+name = "veni-connector-agent"
+version = "0.1.0"
+description = "Outbound-only customer-network connector agent for certified ERP onboarding."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+veni-connector-agent = "connector_agent.docker_runner:main"
+veni-connector-agent-windows = "connector_agent.windows_service_runner:main"
+

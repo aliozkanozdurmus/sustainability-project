@@ -79,7 +79,15 @@ class IntegrationConfigSummaryResponse(BaseModel):
     connector_type: str
     display_name: str
     status: str
+    support_tier: str
+    certified_variant: str | None = None
+    product_version: str | None = None
+    health_band: str
+    last_discovered_at: str | None = None
+    last_preflight_at: str | None = None
+    last_preview_sync_at: str | None = None
     last_synced_at: str | None = None
+    assigned_agent_status: str | None = None
 
 
 class TenantListResponse(BaseModel):

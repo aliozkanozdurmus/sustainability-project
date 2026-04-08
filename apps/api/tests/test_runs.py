@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 import pdfplumber
 from pypdf import PdfReader
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.settings import settings
@@ -23,6 +23,7 @@ from app.models.core import (
     Claim,
     ClaimCitation,
     Chunk,
+    IntegrationConfig,
     Project,
     ReportArtifact,
     ReportRun,
@@ -308,6 +309,74 @@ def test_create_run_blocks_factory_mode_when_brand_or_profile_is_incomplete(tmp_
         assert detail["is_ready"] is False
         assert detail["blockers"]
         assert any(blocker["code"] == "BRAND_KIT_NOT_CONFIRMED" for blocker in detail["blockers"])
+    finally:
+        settings.local_checkpoint_root = original_checkpoint_root
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_create_run_blocks_when_selected_connector_is_not_green_and_certified(tmp_path: Path) -> None:
+    db_file = tmp_path / "test_runs_connector_gate.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+
+    checkpoint_root = tmp_path / "checkpoints"
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    original_checkpoint_root = settings.local_checkpoint_root
+    settings.local_checkpoint_root = str(checkpoint_root)
+    client = TestClient(app)
+
+    try:
+        with TestingSessionLocal() as session:
+            tenant_id, project_id = _seed_tenant_and_project(session)
+            _connector_scope, company_profile_id, brand_kit_id, blueprint_version = _seed_report_factory_context(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+            )
+            blocked_connector = session.scalar(
+                select(IntegrationConfig).where(
+                    IntegrationConfig.tenant_id == tenant_id,
+                    IntegrationConfig.project_id == project_id,
+                    IntegrationConfig.connector_type == "sap_odata",
+                )
+            )
+            assert blocked_connector is not None
+            blocked_connector.status = "configured"
+            blocked_connector.health_band = "red"
+            blocked_connector.health_status_json = {
+                "operator_message": "Connector setup is incomplete.",
+                "recommended_action": "Run preview sync again.",
+            }
+            session.commit()
+
+        response = client.post(
+            "/runs",
+            json={
+                "tenant_id": tenant_id,
+                "project_id": project_id,
+                "framework_target": ["TSRS1", "TSRS2"],
+                "report_blueprint_version": blueprint_version,
+                "company_profile_ref": company_profile_id,
+                "brand_kit_ref": brand_kit_id,
+                "connector_scope": ["sap_odata"],
+                "scope_decision": {"mode": "one_click"},
+            },
+            headers={"x-user-role": "analyst"},
+        )
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["error_code"] == "CONNECTOR_ONBOARDING_INCOMPLETE"
+        assert detail["blocked_connectors"][0]["connector_type"] == "sap_odata"
     finally:
         settings.local_checkpoint_root = original_checkpoint_root
         app.dependency_overrides.clear()

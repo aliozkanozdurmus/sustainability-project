@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     verifier_unsure_threshold: float = Field(default=0.3)
     report_factory_default_blueprint_version: str = Field(default="brandable-tr-v1")
     report_factory_default_locale: str = Field(default="tr-TR")
+    connector_operations_inline_fallback: bool = Field(default=True)
+    connector_agent_stale_after_seconds: int = Field(default=300)
 
     @model_validator(mode="after")
     def enforce_locked_ai_and_database_policy(self) -> "Settings":

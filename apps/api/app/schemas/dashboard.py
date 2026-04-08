@@ -58,6 +58,12 @@ class ConnectorHealthItem(BaseModel):
     display_name: str
     status: str
     auth_mode: str
+    support_tier: str
+    certified_variant: str | None = None
+    health_band: str
+    last_preflight_at_utc: str | None = None
+    last_preview_sync_at_utc: str | None = None
+    assigned_agent_status: str | None = None
     last_synced_at_utc: str | None = None
     job_status: str | None = None
     current_stage: str | None = None
