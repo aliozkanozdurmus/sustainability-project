@@ -1,0 +1,11 @@
+.git
+.next
+.turbo
+coverage
+dist
+build
+node_modules
+output
+apps/api/openapi.json
+packages/shared-types/src/generated
+apps/api/storage

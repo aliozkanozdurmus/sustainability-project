@@ -38,13 +38,12 @@ def test_settings_maps_generic_postgres_url_to_psycopg_sync_url() -> None:
     assert settings.database_sync_url.startswith("postgresql+psycopg://")
 
 
-def test_settings_env_file_chain_includes_repo_root_before_service_env() -> None:
+def test_settings_env_file_chain_uses_repo_root_only() -> None:
     env_files = _default_env_files()
 
     repo_root = Path(__file__).resolve().parents[3]
     assert env_files
-    assert env_files[0] == str(repo_root / ".env")
-    assert str(repo_root / "apps" / "api" / ".env") in env_files
+    assert env_files == (str(repo_root / ".env"),)
     assert Settings.model_config["env_file"] == env_files
 
 

@@ -76,11 +76,10 @@ def test_worker_runtime_settings_rejects_local_override_outside_development() ->
         )
 
 
-def test_worker_env_file_chain_includes_repo_root_before_service_env() -> None:
+def test_worker_env_file_chain_uses_repo_root_only() -> None:
     env_files = _default_env_files()
 
     repo_root = Path(__file__).resolve().parents[3]
     assert env_files
-    assert env_files[0] == str(repo_root / ".env")
-    assert str(repo_root / "services" / "worker" / ".env") in env_files
+    assert env_files == (str(repo_root / ".env"),)
     assert WorkerRuntimeSettings.model_config["env_file"] == env_files

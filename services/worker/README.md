@@ -11,6 +11,8 @@ ARQ worker service for background jobs in the ESG platform.
 
 ## Local install
 
+Create `/.env` from `/.env.example` at the repository root before running the worker locally.
+
 ```bash
 python -m pip install -e .[dev]
 ```

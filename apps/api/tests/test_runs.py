@@ -19,6 +19,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models.core import (
     AuditEvent,
+    BrandKit,
     CalculationRun,
     Claim,
     ClaimCitation,
@@ -37,7 +38,7 @@ from app.orchestration.checkpoint_store import LocalJsonlCheckpointStore
 from app.services.job_queue import get_job_queue_service
 from app.services.integrations import run_connector_sync
 from app.services.report_context import apply_report_factory_configuration, ensure_project_report_context
-from app.services.report_factory import REPORT_PDF_ARTIFACT_TYPE
+from app.services.report_factory import REPORT_PDF_ARTIFACT_TYPE, _resolve_brand_mark_uri
 
 
 def _seed_tenant_and_project(db: Session) -> tuple[str, str]:
@@ -62,6 +63,7 @@ def _seed_report_factory_context(
     tenant_id: str,
     project_id: str,
     connector_types: set[str] | None = None,
+    logo_uri: str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='80'><rect width='240' height='80' rx='16' fill='%230c4a6e'/><text x='120' y='50' font-size='28' text-anchor='middle' fill='white'>TEST</text></svg>",
 ) -> tuple[list[str], str, str, str]:
     tenant = db.get(Tenant, tenant_id)
     project = db.get(Project, project_id)
@@ -88,7 +90,7 @@ def _seed_report_factory_context(
         },
         brand_kit_payload={
             "brand_name": tenant.name,
-            "logo_uri": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='80'><rect width='240' height='80' rx='16' fill='%230c4a6e'/><text x='120' y='50' font-size='28' text-anchor='middle' fill='white'>TEST</text></svg>",
+            "logo_uri": logo_uri,
             "primary_color": "#f07f13",
             "secondary_color": "#0c4a6e",
             "accent_color": "#7ab648",
@@ -186,6 +188,182 @@ def _finalize_package_as_worker(db: Session, run_id: str) -> None:
         )
     )
     db.commit()
+
+
+def test_report_factory_converts_local_brand_logo_path_to_data_uri(tmp_path: Path) -> None:
+    db_file = tmp_path / "test_runs_local_brand_logo_uri.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+
+    try:
+        with TestingSessionLocal() as session:
+            tenant_id, project_id = _seed_tenant_and_project(session)
+            _connector_scope, _company_profile_id, brand_kit_id, _blueprint_version = _seed_report_factory_context(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                logo_uri="/brand/veni-logo-orbit-leaf.png",
+            )
+            tenant = session.get(Tenant, tenant_id)
+            brand_kit = session.get(BrandKit, brand_kit_id)
+            assert tenant is not None
+            assert brand_kit is not None
+
+            resolved_uri = _resolve_brand_mark_uri(tenant, brand_kit)
+            assert resolved_uri.startswith("data:image/png;base64,")
+    finally:
+        engine.dispose()
+
+
+def test_report_package_renders_local_brand_logo_in_reportlab_fallback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import app.services.report_factory as report_factory_service
+
+    db_file = tmp_path / "test_runs_local_brand_logo_reportlab.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+
+    original_local_blob_root = settings.local_blob_root
+    settings.local_blob_root = str(tmp_path / "storage")
+    monkeypatch.setattr(report_factory_service, "_load_weasyprint_html", lambda: None)
+
+    try:
+        with TestingSessionLocal() as session:
+            tenant_id, project_id = _seed_tenant_and_project(session)
+            connector_scope, company_profile_id, brand_kit_id, blueprint_version = _seed_report_factory_context(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                logo_uri="/brand/veni-logo-orbit-leaf.png",
+            )
+
+            report_run = ReportRun(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                company_profile_id=company_profile_id,
+                brand_kit_id=brand_kit_id,
+                status="completed",
+                publish_ready=True,
+                completed_at=datetime.now(timezone.utc),
+                report_blueprint_version=blueprint_version,
+                connector_scope=connector_scope,
+            )
+            session.add(report_run)
+            session.flush()
+
+            section = ReportSection(
+                report_run_id=report_run.id,
+                section_code="TSRS2-LOCAL-LOGO",
+                title="Local Logo Fallback",
+                status="verified",
+                ordinal=1,
+            )
+            session.add(section)
+            session.flush()
+
+            source_document = SourceDocument(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                document_type="invoice",
+                filename="energy-2025.pdf",
+                storage_uri="obj://raw/energy-2025.pdf",
+                ingested_at=datetime.now(timezone.utc),
+                status="indexed",
+            )
+            session.add(source_document)
+            session.flush()
+
+            chunk = Chunk(
+                source_document_id=source_document.id,
+                chunk_index=0,
+                text="Scope 2 emissions decreased by 11.0 percent year-over-year.",
+                page=1,
+                section_label="TSRS2",
+                token_count=12,
+            )
+            session.add(chunk)
+            session.flush()
+
+            claim = Claim(
+                report_section_id=section.id,
+                statement="Scope 2 emissions decreased by 11.0 percent.",
+                status="pass",
+                confidence=0.96,
+            )
+            session.add(claim)
+            session.flush()
+
+            session.add(
+                ClaimCitation(
+                    claim_id=claim.id,
+                    source_document_id=source_document.id,
+                    chunk_id=chunk.id,
+                    span_start=0,
+                    span_end=20,
+                )
+            )
+            session.add(
+                CalculationRun(
+                    report_run_id=report_run.id,
+                    claim_id=claim.id,
+                    formula_name="ghg_scope2_market_based",
+                    code_hash="sha256:test-calc",
+                    inputs_ref="obj://calc-inputs/test-calc.json",
+                    output_value=110.0,
+                    output_unit="tCO2e",
+                    trace_log_ref="obj://calc-logs/test-calc.log",
+                    status="completed",
+                )
+            )
+            session.add(
+                VerificationResult(
+                    report_run_id=report_run.id,
+                    claim_id=claim.id,
+                    run_execution_id="exec_publish_logo_path",
+                    run_attempt=1,
+                    verifier_version=VERIFIER_VERSION,
+                    status="PASS",
+                    reason="entailment_threshold_passed",
+                    severity="normal",
+                    confidence=0.97,
+                )
+            )
+            session.commit()
+            run_id = report_run.id
+
+        with TestingSessionLocal() as session:
+            _finalize_package_as_worker(session, run_id)
+
+        with TestingSessionLocal() as session:
+            report_pdf_artifact = (
+                session.query(ReportArtifact)
+                .filter(
+                    ReportArtifact.report_run_id == run_id,
+                    ReportArtifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE,
+                )
+                .one()
+            )
+            metadata = report_pdf_artifact.artifact_metadata_json or {}
+            assert metadata.get("renderer") == "reportlab_fallback"
+
+            storage_uri = report_pdf_artifact.storage_uri
+            assert storage_uri.startswith("file://")
+            pdf_bytes = Path(storage_uri.removeprefix("file://")).read_bytes()
+
+        pdf_reader = PdfReader(BytesIO(pdf_bytes))
+        first_page_resources = pdf_reader.pages[0].get("/Resources")
+        second_page_resources = pdf_reader.pages[1].get("/Resources")
+        assert first_page_resources is not None
+        assert second_page_resources is not None
+        assert first_page_resources.get("/XObject") is not None
+        assert second_page_resources.get("/XObject") is not None
+    finally:
+        settings.local_blob_root = original_local_blob_root
+        engine.dispose()
 
 
 def test_create_run_initializes_report_run_and_checkpoint(tmp_path: Path) -> None:

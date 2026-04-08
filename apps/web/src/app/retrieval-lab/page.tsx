@@ -18,55 +18,33 @@ import {
   SurfaceCard,
 } from "@/components/workbench-ui";
 import {
-  buildApiHeaders,
-  getApiBaseUrl,
-  parseJsonOrThrow,
-} from "@/lib/api/client";
+  type RetrievalResponse,
+  retrievalModeSchema,
+  useRetrievalQueryMutation,
+} from "@/lib/api/retrieval";
 import { useWorkspaceContext } from "@/lib/api/workspace-store";
-
-type EvidenceItem = {
-  evidence_id: string;
-  source_document_id: string;
-  chunk_id: string;
-  page: number | null;
-  text: string;
-  score_dense: number | null;
-  score_sparse: number | null;
-  score_final: number;
-  metadata: Record<string, unknown>;
-};
-
-type RetrievalResponse = {
-  retrieval_run_id: string;
-  evidence: EvidenceItem[];
-  diagnostics: {
-    backend: string;
-    retrieval_mode: string;
-    top_k: number;
-    result_count: number;
-    filter_hit_count: number;
-    coverage: number;
-    best_score: number;
-    quality_gate_passed: boolean;
-    latency_ms: number;
-    index_name: string;
-    applied_filters: Record<string, string>;
-  };
-};
 
 export default function RetrievalLabPage() {
   const workspace = useWorkspaceContext();
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queryText, setQueryText] = useState("Scope 2 emissions year-over-year change");
   const [topK, setTopK] = useState("10");
-  const [retrievalMode, setRetrievalMode] = useState<"hybrid" | "sparse" | "dense">("hybrid");
+  const [retrievalMode, setRetrievalMode] = useState<
+    "hybrid" | "sparse" | "dense"
+  >("hybrid");
   const [minScore, setMinScore] = useState("0");
   const [minCoverage, setMinCoverage] = useState("0");
   const [period, setPeriod] = useState("2025");
   const [keywords, setKeywords] = useState("scope 2,electricity,emissions");
   const [sectionTags, setSectionTags] = useState("TSRS2,CSRD");
-  const [response, setResponse] = useState<RetrievalResponse | null>(null);
+  const retrievalMutation = useRetrievalQueryMutation(workspace);
+  const busy = retrievalMutation.isPending;
+  const response = retrievalMutation.data ?? null;
+  const displayError =
+    error ??
+    (retrievalMutation.error instanceof Error
+      ? retrievalMutation.error.message
+      : null);
 
   async function handleQuery() {
     if (!workspace) {
@@ -78,41 +56,20 @@ export default function RetrievalLabPage() {
       return;
     }
 
-    setBusy(true);
     setError(null);
     try {
-      const result = await fetch(`${getApiBaseUrl()}/retrieval/query`, {
-        method: "POST",
-        headers: buildApiHeaders(workspace.tenantId),
-        body: JSON.stringify({
-          tenant_id: workspace.tenantId,
-          project_id: workspace.projectId,
-          query_text: queryText.trim(),
-          top_k: Number(topK) || 10,
-          retrieval_mode: retrievalMode,
-          min_score: Number(minScore) || 0,
-          min_coverage: Number(minCoverage) || 0,
-          retrieval_hints: {
-            period: period.trim() || null,
-            keywords: keywords
-              .split(",")
-              .map((item) => item.trim())
-              .filter(Boolean),
-            section_tags: sectionTags
-              .split(",")
-              .map((item) => item.trim())
-              .filter(Boolean),
-            small_to_big: true,
-            context_window: 1,
-          },
-        }),
+      await retrievalMutation.mutateAsync({
+        queryText,
+        topK,
+        retrievalMode,
+        minScore,
+        minCoverage,
+        period,
+        keywords,
+        sectionTags,
       });
-      const payload = await parseJsonOrThrow<RetrievalResponse>(result);
-      setResponse(payload);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Retrieval query failed.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -138,9 +95,9 @@ export default function RetrievalLabPage() {
         </div>
       )}
 
-      {error ? (
-        <SubtleAlert tone="critical" title="Retrieval issue">
-          {error}
+      {displayError ? (
+        <SubtleAlert tone="critical" title="Retrieval issue" data-testid="retrieval-error">
+          {displayError}
         </SubtleAlert>
       ) : null}
 
@@ -159,7 +116,13 @@ export default function RetrievalLabPage() {
               <input className={fieldClassName()} value={topK} onChange={(event) => setTopK(event.target.value)} />
             </FormField>
             <FormField label="Mode">
-              <select className={fieldClassName()} value={retrievalMode} onChange={(event) => setRetrievalMode(event.target.value as "hybrid" | "sparse" | "dense")}>
+              <select
+                className={fieldClassName()}
+                value={retrievalMode}
+                onChange={(event) =>
+                  setRetrievalMode(retrievalModeSchema.parse(event.target.value))
+                }
+              >
                 <option value="hybrid">hybrid</option>
                 <option value="sparse">sparse</option>
                 <option value="dense">dense</option>
@@ -182,7 +145,12 @@ export default function RetrievalLabPage() {
             </FormField>
           </div>
           <div className="mt-4">
-            <Button type="button" onClick={() => void handleQuery()} disabled={busy || !workspace}>
+            <Button
+              type="button"
+              onClick={() => void handleQuery()}
+              disabled={busy || !workspace}
+              data-testid="retrieval-submit-button"
+            >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               Run Retrieval
             </Button>
@@ -222,7 +190,7 @@ export default function RetrievalLabPage() {
             title="Ranked evidence results"
             description="Inspect the ranked chunks, document provenance, and final scoring output."
           />
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-3" data-testid="retrieval-results">
             {response?.evidence.map((item) => (
               <div key={item.evidence_id} className="rounded-[1.35rem] border border-[color:var(--border)] bg-white/58 p-4">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

@@ -4,8 +4,10 @@ Status: Public-safe configuration catalog
 Date: 2026-03-10
 
 ## 1) Policy
-- No environment files are version-controlled in this repository.
-- Local developers may use untracked `.env` files, shell variables, or secret-manager injection.
+- The only committed environment template is repo-root `/.env.example`.
+- Local developers should use a single untracked repo-root `/.env` for file-based runtime configuration.
+- Service-local `.env` files are not part of the supported workflow.
+- Docker Compose reads the same root `/.env` for shared defaults and overrides container-local endpoints inline.
 - Production secrets should come from Azure Key Vault or equivalent platform secret stores.
 
 ## 2) Shared Policy-Locked Variables
@@ -26,6 +28,8 @@ Date: 2026-03-10
 | `NEXT_PUBLIC_API_BASE_URL` | Browser-facing API base URL. |
 | `NEXT_PUBLIC_DEFAULT_TENANT_ID` | Optional tenant fallback for local demos. |
 | `NEXT_PUBLIC_DEFAULT_PROJECT_ID` | Optional project fallback for local demos. |
+
+Only `NEXT_PUBLIC_*` variables may be exposed to browser runtimes.
 
 ## 4) API Runtime Variables
 | Variable | Purpose |
@@ -55,9 +59,13 @@ Date: 2026-03-10
 | `WORKFLOW_RETRY_BASE_SECONDS` | Base retry delay. |
 | `WORKFLOW_RETRY_MAX_DEFER_SECONDS` | Max retry delay. |
 | `WORKFLOW_EXECUTE_MAX_STEPS` | Workflow step budget per run. |
+| `AZURE_OPENAI_IMAGE_DEPLOYMENT` | Primary image deployment name for report visuals. |
+| `AZURE_OPENAI_IMAGE_FALLBACK_DEPLOYMENT` | Fallback image deployment name for report visuals. |
 | `VERIFIER_MODE` | Verifier implementation mode. |
 | `VERIFIER_PASS_THRESHOLD` | PASS threshold. |
 | `VERIFIER_UNSURE_THRESHOLD` | UNSURE threshold. |
+| `REPORT_FACTORY_DEFAULT_BLUEPRINT_VERSION` | Default report blueprint version. |
+| `REPORT_FACTORY_DEFAULT_LOCALE` | Default report locale. |
 
 ## 5) Worker Runtime Variables
 | Variable | Purpose |
@@ -71,8 +79,19 @@ Date: 2026-03-10
 | `INDEX_JOB_MAX_RETRIES` | Indexing retry cap. |
 | `INDEX_RETRY_BASE_SECONDS` | Indexing base retry delay. |
 | `INDEX_RETRY_MAX_DEFER_SECONDS` | Indexing max retry delay. |
+| `PACKAGE_JOB_MAX_RETRIES` | Package retry cap. |
+| `PACKAGE_RETRY_BASE_SECONDS` | Package base retry delay. |
+| `PACKAGE_RETRY_MAX_DEFER_SECONDS` | Package max retry delay. |
 
-## 6) Public Repository Guardrails
+## 6) Playwright and Local Dev Helper Variables
+| Variable | Purpose |
+|---|---|
+| `PLAYWRIGHT_WEB_BASE_URL` | Base URL for browser smoke flows. |
+| `PLAYWRIGHT_API_BASE_URL` | API base URL used by Playwright helpers. |
+| `PLAYWRIGHT_DEMO_TENANT_ID` | Optional pre-seeded tenant override for local smoke flows. |
+| `PLAYWRIGHT_DEMO_PROJECT_ID` | Optional pre-seeded project override for local smoke flows. |
+
+## 7) Public Repository Guardrails
 - Never commit real keys, passwords, connection strings, or signed URLs.
 - If a credential ever reaches git history, rotate it before making the repository public.
 - Keep example values obviously fake and tenant-neutral in documentation.

@@ -10,15 +10,26 @@
     "build": "turbo run build",
     "e2e": "turbo run e2e",
     "e2e:manual-smoke": "pnpm --filter web e2e:manual-smoke",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "generate:openapi": "python -c \"import json,sys;from pathlib import Path;api_root=Path('apps/api').resolve();sys.path.insert(0,str(api_root));from app.main import app;Path('apps/api/openapi.json').write_text(json.dumps(app.openapi(), indent=2), encoding='utf-8')\"",
     "generate:types": "openapi-typescript apps/api/openapi.json --output packages/shared-types/src/generated/api-types.ts",
     "contracts:sync": "pnpm run generate:openapi && pnpm run generate:types",
     "knip": "knip --config knip.json",
-    "clean": "turbo run clean --continue"
+    "clean": "turbo run clean --continue",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
+    "husky": "^9.1.7",
     "knip": "^5.61.3",
+    "lint-staged": "^16.4.0",
     "openapi-typescript": "^7.10.1",
+    "prettier": "^3.8.1",
+    "prettier-plugin-tailwindcss": "^0.7.2",
+    "stylelint": "^17.6.0",
+    "stylelint-config-standard": "^40.0.0",
     "turbo": "^2.5.8",
     "typescript": "^5.9.2"
   }

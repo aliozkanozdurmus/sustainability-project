@@ -3,6 +3,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 
+import { Providers } from "@/components/providers";
+import { appMetadata } from "@/lib/app-metadata";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
@@ -13,10 +15,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Veni AI Sustainability Cockpit",
-  description:
-    "Zero-hallucination ESG reporting cockpit for TSRS and CSRD workflows.",
-};
+  ...appMetadata,
+} satisfies Metadata;
 
 export default function RootLayout({
   children,
@@ -31,7 +31,7 @@ export default function RootLayout({
           inter.variable,
         )}
       >
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

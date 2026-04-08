@@ -8,7 +8,7 @@ This policy defines allowed environment variables and secret handling for the ES
 
 ## 2) Core Security Rules
 - No secrets in source code.
-- No version-controlled environment files in the repository.
+- No version-controlled environment files in the repository other than the fake-value root template `/.env.example`.
 - Secrets must be loaded from Azure Key Vault in production where possible.
 - Service-to-service auth should prefer Managed Identity.
 
@@ -34,7 +34,7 @@ The following model provider variables are disallowed in production config:
 
 ## 5) Runtime Configuration Contract
 - Runtime variables are documented in `docs/configuration/runtime-configuration.md`.
-- Local `.env` files may exist on developer machines, but they must remain untracked.
+- Local file-based configuration should use a single untracked repo-root `/.env`.
 - Public repository history must never include live credentials or connection strings.
 
 ## 6) Rotation and Audit

@@ -14,6 +14,8 @@ test("global search routes to retrieval lab", async ({ page }) => {
 
   const searchInput = page.getByTestId("global-search-input");
   await expect(searchInput).toBeVisible();
+  await expect(page.getByTestId("app-shell-brand-logo")).toBeVisible();
+  await expect(page.getByTestId("dashboard-hero-logo")).toBeVisible();
 
   await searchInput.fill("retrieval");
   await expect(page.getByTestId("global-search-results")).toContainText("Retrieval Lab");

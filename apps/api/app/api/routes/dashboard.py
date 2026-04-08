@@ -42,7 +42,7 @@ from app.schemas.dashboard import (
     RunQueueItem,
     ScheduleItem,
 )
-from app.services.report_context import build_report_factory_readiness
+from app.services.report_context import build_report_factory_readiness, resolve_brand_logo_uri
 from app.services.integrations import connector_ready_for_launch, get_assigned_agent_status
 
 
@@ -299,7 +299,7 @@ async def get_dashboard_overview(
             "Live Report Factory performance across connector sync, verification pressure, "
             "package progress, and artifact readiness."
         ),
-        logo_uri=brand_kit.logo_uri if brand_kit is not None else None,
+        logo_uri=resolve_brand_logo_uri(brand_kit),
         primary_color=brand_kit.primary_color if brand_kit is not None else None,
         accent_color=brand_kit.accent_color if brand_kit is not None else None,
     )

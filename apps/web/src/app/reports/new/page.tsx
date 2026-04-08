@@ -18,255 +18,53 @@ import {
 
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { persistWorkspaceContext } from "@/lib/api/client";
 import {
-  buildApiHeaders,
-  getApiBaseUrl,
-  parseJsonOrThrow,
-  persistWorkspaceContext,
-} from "@/lib/api/client";
+  syncIntegrations,
+  type WorkspaceContextResponse,
+  useBootstrapWorkspaceMutation,
+  useWorkspaceContextQuery,
+} from "@/lib/api/catalog";
+import { createRun } from "@/lib/api/runs";
+import {
+  INITIAL_LAUNCHPAD_STATE,
+  INITIAL_WORKSPACE_SETUP,
+  STEP_TITLES,
+  buildFactoryContext,
+  buildRetrievalTasks,
+  buildWorkspaceSetupState,
+  completionScore,
+  isConnectorLaunchReady,
+  launchpadWizardStateSchema,
+  resolveFrameworkTargets,
+  workspaceBootstrapFormSchema,
+  type FactoryContext,
+  type LaunchpadWizardState,
+  type WorkspaceSetupState,
+} from "@/lib/api/report-factory";
+import { resolveBrandLogoUri } from "@/lib/brand";
 import { useWorkspaceContext } from "@/lib/api/workspace-store";
 
-type WizardState = {
-  legalName: string;
-  taxId: string;
-  framework: "TSRS" | "CSRD" | "TSRS+CSRD";
-  reportingYear: string;
-  operationCountries: string;
-  includeScope3: boolean;
-  sustainabilityOwner: string;
-  boardApprover: string;
-  approvalSlaDays: string;
+const INITIAL_WORKSPACE_SETUP_STATE: WorkspaceSetupState = {
+  ...INITIAL_WORKSPACE_SETUP,
+  logoUri: resolveBrandLogoUri(null),
 };
 
-type WorkspaceContextResponse = {
-  tenant: {
-    id: string;
-    name: string;
-    slug: string;
-    status: string;
-  };
-  project: {
-    id: string;
-    tenant_id: string;
-    name: string;
-    code: string;
-    reporting_currency: string;
-    status: string;
-  };
-  company_profile: {
-    id: string;
-    legal_name: string;
-    sector: string | null;
-    headquarters: string | null;
-    description: string | null;
-    ceo_name: string | null;
-    ceo_message: string | null;
-    sustainability_approach: string | null;
-    is_configured: boolean;
-  };
-  brand_kit: {
-    id: string;
-    brand_name: string;
-    logo_uri: string | null;
-    primary_color: string;
-    secondary_color: string;
-    accent_color: string;
-    font_family_headings: string;
-    font_family_body: string;
-    tone_name: string | null;
-    is_configured: boolean;
-  };
-  integrations: Array<{
-    id: string;
-    connector_type: string;
-    display_name: string;
-    status: string;
-    support_tier: "certified" | "beta" | "unsupported";
-    certified_variant: string | null;
-    product_version: string | null;
-    health_band: "green" | "amber" | "red";
-    assigned_agent_status: string | null;
-  }>;
-  blueprint_version: string;
-  factory_readiness: {
-    is_ready: boolean;
-    company_profile_ready: boolean;
-    brand_kit_ready: boolean;
-    blockers: Array<{
-      code: string;
-      message: string;
-    }>;
-  };
-};
-
-type WorkspaceBootstrapResponse = WorkspaceContextResponse & {
-  tenant_created: boolean;
-  project_created: boolean;
-};
-
-type RunCreateResponse = {
-  run_id: string;
-  report_run_id: string;
-};
-
-type FactoryContext = {
-  companyProfileId: string;
-  brandKitId: string;
-  blueprintVersion: string;
-  integrations: Array<{
-    id: string;
-    connectorType: string;
-    displayName: string;
-    status: string;
-    supportTier: "certified" | "beta" | "unsupported";
-    certifiedVariant: string | null;
-    productVersion: string | null;
-    healthBand: "green" | "amber" | "red";
-    assignedAgentStatus: string | null;
-  }>;
-  readiness: WorkspaceContextResponse["factory_readiness"];
-};
-
-type WorkspaceSetupState = {
-  legalName: string;
-  sector: string;
-  headquarters: string;
-  description: string;
-  ceoName: string;
-  ceoMessage: string;
-  sustainabilityApproach: string;
-  brandName: string;
-  logoUri: string;
-  primaryColor: string;
-  secondaryColor: string;
-  accentColor: string;
-  headingFont: string;
-  bodyFont: string;
-  toneName: string;
-};
-
-const STEP_TITLES = [
-  "Workspace Context",
-  "Report Scope",
-  "Governance",
-] as const;
-
-const INITIAL_STATE: WizardState = {
-  legalName: "",
-  taxId: "",
-  framework: "TSRS+CSRD",
-  reportingYear: "2025",
-  operationCountries: "Turkiye",
-  includeScope3: true,
-  sustainabilityOwner: "",
-  boardApprover: "",
-  approvalSlaDays: "5",
-};
-
-const INITIAL_WORKSPACE_SETUP: WorkspaceSetupState = {
-  legalName: "",
-  sector: "",
-  headquarters: "",
-  description: "",
-  ceoName: "",
-  ceoMessage: "",
-  sustainabilityApproach: "",
-  brandName: "",
-  logoUri: "",
-  primaryColor: "#f07f13",
-  secondaryColor: "#262421",
-  accentColor: "#d2b24a",
-  headingFont: "Inter",
-  bodyFont: "Inter",
-  toneName: "editorial-corporate",
-};
-
-function resolveFrameworkTargets(form: WizardState): string[] {
-  if (form.framework === "TSRS+CSRD") {
-    return ["TSRS1", "TSRS2", "CSRD"];
-  }
-  if (form.framework === "TSRS") {
-    return ["TSRS1", "TSRS2"];
-  }
-  return ["CSRD"];
-}
-
-function buildRetrievalTasks(form: WizardState, frameworkTarget: string[]) {
-  return frameworkTarget.map((framework, index) => {
-    if (framework === "TSRS1") {
-      return {
-        task_id: `task_${index + 1}_tsrs1`,
-        framework,
-        section_target: "TSRS1 Governance and Risk Management",
-        query_text: `TSRS1 governance and risk management sustainability committee oversight ${form.reportingYear}`,
-        retrieval_mode: "hybrid" as const,
-        top_k: 3,
-      };
-    }
-    if (framework === "TSRS2") {
-      return {
-        task_id: `task_${index + 1}_tsrs2`,
-        framework,
-        section_target: "TSRS2 Climate and Energy",
-        query_text: `TSRS2 climate and energy scope 2 electricity emissions renewable electricity ${form.reportingYear}`,
-        retrieval_mode: "hybrid" as const,
-        top_k: 3,
-      };
-    }
-    return {
-      task_id: `task_${index + 1}_csrd`,
-      framework,
-      section_target: "CSRD Workforce and Supply Chain",
-      query_text: `CSRD workforce supply chain lost time injury supplier screening ${form.reportingYear}`,
-      retrieval_mode: "hybrid" as const,
-      top_k: 3,
-    };
-  });
-}
-
-function completionScore(form: WizardState): number {
-  const checklist = [
-    form.legalName.trim().length > 1,
-    form.taxId.trim().length > 5,
-    form.framework.length > 0,
-    form.reportingYear.trim().length === 4,
-    form.operationCountries.trim().length > 1,
-    form.sustainabilityOwner.trim().length > 1,
-    form.boardApprover.trim().length > 1,
-    Number(form.approvalSlaDays) > 0,
-  ];
-  const done = checklist.filter(Boolean).length;
-  return Math.round((done / checklist.length) * 100);
-}
-
-function isConnectorLaunchReady(integration: {
-  status: string;
-  supportTier: "certified" | "beta" | "unsupported";
-  healthBand: "green" | "amber" | "red";
-}) {
-  return (
-    integration.status === "active" &&
-    integration.supportTier === "certified" &&
-    integration.healthBand === "green"
-  );
+function toUiErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 export default function NewReportPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<WizardState>(INITIAL_STATE);
+  const [form, setForm] = useState<LaunchpadWizardState>(INITIAL_LAUNCHPAD_STATE);
   const workspace = useWorkspaceContext();
-  const workspaceKey = workspace
-    ? `${workspace.tenantId}:${workspace.projectId}`
-    : null;
   const [workspaceTenantName, setWorkspaceTenantName] = useState("");
   const [workspaceTenantSlug, setWorkspaceTenantSlug] = useState("");
   const [workspaceProjectName, setWorkspaceProjectName] = useState("");
   const [workspaceProjectCode, setWorkspaceProjectCode] = useState("");
   const [workspaceCurrency, setWorkspaceCurrency] = useState("TRY");
-  const [workspaceSetup, setWorkspaceSetup] = useState<WorkspaceSetupState>(INITIAL_WORKSPACE_SETUP);
-  const [workspaceBusy, setWorkspaceBusy] = useState(false);
-  const [contextBusy, setContextBusy] = useState(false);
+  const [workspaceSetup, setWorkspaceSetup] = useState<WorkspaceSetupState>(INITIAL_WORKSPACE_SETUP_STATE);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
@@ -276,6 +74,15 @@ export default function NewReportPage() {
     "logo_tiger_sql_view",
     "netsis_rest",
   ]);
+  const workspaceContextQuery = useWorkspaceContextQuery(workspace);
+  const bootstrapWorkspaceMutation = useBootstrapWorkspaceMutation();
+  const workspaceBusy = bootstrapWorkspaceMutation.isPending;
+  const contextBusy = workspaceContextQuery.isPending || workspaceContextQuery.isFetching;
+  const pageError =
+    submitError ??
+    (workspaceContextQuery.isError
+      ? toUiErrorMessage(workspaceContextQuery.error, "Workspace context could not be loaded.")
+      : null);
   const score = useMemo(() => completionScore(form), [form]);
   const isLastStep = step === STEP_TITLES.length - 1;
   const selectedIntegrations = useMemo(
@@ -308,39 +115,11 @@ export default function NewReportPage() {
       setWorkspaceProjectName(payload.project.name);
       setWorkspaceProjectCode(payload.project.code);
       setWorkspaceCurrency(payload.project.reporting_currency);
-      setFactoryContext({
-        companyProfileId: payload.company_profile.id,
-        brandKitId: payload.brand_kit.id,
-        blueprintVersion: payload.blueprint_version,
-        integrations: payload.integrations.map((item) => ({
-          id: item.id,
-          connectorType: item.connector_type,
-          displayName: item.display_name,
-          status: item.status,
-          supportTier: item.support_tier,
-          certifiedVariant: item.certified_variant,
-          productVersion: item.product_version,
-          healthBand: item.health_band,
-          assignedAgentStatus: item.assigned_agent_status,
-        })),
-        readiness: payload.factory_readiness,
-      });
+      setFactoryContext(buildFactoryContext(payload));
+      const nextWorkspaceSetup = buildWorkspaceSetupState(payload);
       setWorkspaceSetup({
-        legalName: payload.company_profile.legal_name ?? "",
-        sector: payload.company_profile.sector ?? "",
-        headquarters: payload.company_profile.headquarters ?? "",
-        description: payload.company_profile.description ?? "",
-        ceoName: payload.company_profile.ceo_name ?? "",
-        ceoMessage: payload.company_profile.ceo_message ?? "",
-        sustainabilityApproach: payload.company_profile.sustainability_approach ?? "",
-        brandName: payload.brand_kit.brand_name ?? "",
-        logoUri: payload.brand_kit.logo_uri ?? "",
-        primaryColor: payload.brand_kit.primary_color,
-        secondaryColor: payload.brand_kit.secondary_color,
-        accentColor: payload.brand_kit.accent_color,
-        headingFont: payload.brand_kit.font_family_headings,
-        bodyFont: payload.brand_kit.font_family_body,
-        toneName: payload.brand_kit.tone_name ?? "",
+        ...nextWorkspaceSetup,
+        logoUri: resolveBrandLogoUri(payload.brand_kit.logo_uri),
       });
       setConnectorScope(payload.integrations.map((item) => item.connector_type));
       setForm((prev) => ({
@@ -348,59 +127,22 @@ export default function NewReportPage() {
         legalName: prev.legalName || payload.company_profile.legal_name,
       }));
     },
-    [workspace],
+    [workspace?.projectId, workspace?.tenantId],
   );
 
   useEffect(() => {
-    if (!workspace || !workspaceKey) {
+    if (!workspaceContextQuery.data) {
       return;
     }
-    const currentWorkspace = workspace;
-    const controller = new AbortController();
-    let active = true;
+    applyWorkspaceContext(workspaceContextQuery.data);
+  }, [applyWorkspaceContext, workspaceContextQuery.data]);
 
-    async function loadWorkspaceContext() {
-      setContextBusy(true);
-      setSubmitError(null);
-      try {
-        const apiBase = getApiBaseUrl();
-        const response = await fetch(
-          `${apiBase}/catalog/workspace-context?tenant_id=${encodeURIComponent(currentWorkspace.tenantId)}&project_id=${encodeURIComponent(currentWorkspace.projectId)}`,
-          {
-            headers: buildApiHeaders(currentWorkspace.tenantId),
-            signal: controller.signal,
-          },
-        );
-        const payload = await parseJsonOrThrow<WorkspaceContextResponse>(response);
-        if (active) {
-          applyWorkspaceContext(payload);
-        }
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        if (active) {
-          setFactoryContext(null);
-          setSubmitError(
-            error instanceof Error
-              ? error.message
-              : "Workspace context could not be loaded.",
-          );
-        }
-      } finally {
-        if (active) {
-          setContextBusy(false);
-        }
-      }
+  useEffect(() => {
+    if (!workspaceContextQuery.isError) {
+      return;
     }
-
-    void loadWorkspaceContext();
-
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [applyWorkspaceContext, workspace, workspaceKey]);
+    setFactoryContext(null);
+  }, [workspaceContextQuery.isError]);
 
   const canSubmit =
     form.legalName.trim().length > 1 &&
@@ -422,51 +164,48 @@ export default function NewReportPage() {
   async function handleBootstrapWorkspace() {
     setSubmitError(null);
     setSubmitNotice(null);
-    if (
-      workspaceTenantName.trim().length < 2 ||
-      workspaceTenantSlug.trim().length < 2 ||
-      workspaceProjectName.trim().length < 2 ||
-      workspaceProjectCode.trim().length < 2
-    ) {
-      setSubmitError("Tenant and project fields are required.");
+    const parsedBootstrapForm = workspaceBootstrapFormSchema.safeParse({
+      tenantName: workspaceTenantName,
+      tenantSlug: workspaceTenantSlug,
+      projectName: workspaceProjectName,
+      projectCode: workspaceProjectCode,
+      workspaceCurrency,
+      workspaceSetup,
+    });
+
+    if (!parsedBootstrapForm.success) {
+      setSubmitError(parsedBootstrapForm.error.issues[0]?.message ?? "Tenant and project fields are required.");
       return;
     }
 
-    setWorkspaceBusy(true);
     try {
-      const apiBase = getApiBaseUrl();
-      const tenantHeader = workspace?.tenantId ?? "dev-tenant";
-      const response = await fetch(`${apiBase}/catalog/bootstrap-workspace`, {
-        method: "POST",
-        headers: buildApiHeaders(tenantHeader),
-        body: JSON.stringify({
-          tenant_name: workspaceTenantName.trim(),
-          tenant_slug: workspaceTenantSlug.trim(),
-          project_name: workspaceProjectName.trim(),
-          project_code: workspaceProjectCode.trim(),
-          reporting_currency: workspaceCurrency.trim().toUpperCase(),
-          company_profile: {
-            legal_name: workspaceSetup.legalName.trim(),
-            sector: workspaceSetup.sector.trim(),
-            headquarters: workspaceSetup.headquarters.trim(),
-            description: workspaceSetup.description.trim(),
-            ceo_name: workspaceSetup.ceoName.trim(),
-            ceo_message: workspaceSetup.ceoMessage.trim(),
-            sustainability_approach: workspaceSetup.sustainabilityApproach.trim(),
-          },
-          brand_kit: {
-            brand_name: workspaceSetup.brandName.trim(),
-            logo_uri: workspaceSetup.logoUri.trim(),
-            primary_color: workspaceSetup.primaryColor.trim(),
-            secondary_color: workspaceSetup.secondaryColor.trim(),
-            accent_color: workspaceSetup.accentColor.trim(),
-            font_family_headings: workspaceSetup.headingFont.trim(),
-            font_family_body: workspaceSetup.bodyFont.trim(),
-            tone_name: workspaceSetup.toneName.trim(),
-          },
-        }),
+      const payload = await bootstrapWorkspaceMutation.mutateAsync({
+        tenantHeader: workspace?.tenantId ?? "dev-tenant",
+        tenant_name: parsedBootstrapForm.data.tenantName.trim(),
+        tenant_slug: parsedBootstrapForm.data.tenantSlug.trim(),
+        project_name: parsedBootstrapForm.data.projectName.trim(),
+        project_code: parsedBootstrapForm.data.projectCode.trim(),
+        reporting_currency: parsedBootstrapForm.data.workspaceCurrency.trim().toUpperCase(),
+        company_profile: {
+          legal_name: parsedBootstrapForm.data.workspaceSetup.legalName.trim(),
+          sector: parsedBootstrapForm.data.workspaceSetup.sector.trim(),
+          headquarters: parsedBootstrapForm.data.workspaceSetup.headquarters.trim(),
+          description: parsedBootstrapForm.data.workspaceSetup.description.trim(),
+          ceo_name: parsedBootstrapForm.data.workspaceSetup.ceoName.trim(),
+          ceo_message: parsedBootstrapForm.data.workspaceSetup.ceoMessage.trim(),
+          sustainability_approach: parsedBootstrapForm.data.workspaceSetup.sustainabilityApproach.trim(),
+        },
+        brand_kit: {
+          brand_name: parsedBootstrapForm.data.workspaceSetup.brandName.trim(),
+          logo_uri: parsedBootstrapForm.data.workspaceSetup.logoUri.trim(),
+          primary_color: parsedBootstrapForm.data.workspaceSetup.primaryColor.trim(),
+          secondary_color: parsedBootstrapForm.data.workspaceSetup.secondaryColor.trim(),
+          accent_color: parsedBootstrapForm.data.workspaceSetup.accentColor.trim(),
+          font_family_headings: parsedBootstrapForm.data.workspaceSetup.headingFont.trim(),
+          font_family_body: parsedBootstrapForm.data.workspaceSetup.bodyFont.trim(),
+          tone_name: parsedBootstrapForm.data.workspaceSetup.toneName.trim(),
+        },
       });
-      const payload = await parseJsonOrThrow<WorkspaceBootstrapResponse>(response);
       applyWorkspaceContext(payload);
       setSubmitNotice(
         payload.factory_readiness.is_ready
@@ -474,9 +213,7 @@ export default function NewReportPage() {
           : "Workspace created, but the Report Factory still needs profile or brand confirmation.",
       );
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Workspace bootstrap failed.");
-    } finally {
-      setWorkspaceBusy(false);
+      setSubmitError(toUiErrorMessage(error, "Workspace bootstrap failed."));
     }
   }
 
@@ -515,8 +252,8 @@ export default function NewReportPage() {
 
     setIsSubmitting(true);
     try {
-      const apiBase = getApiBaseUrl();
-      const frameworkTarget = resolveFrameworkTargets(form);
+      const validatedForm = launchpadWizardStateSchema.parse(form);
+      const frameworkTarget = resolveFrameworkTargets(validatedForm);
       const activeConnectorIds = selectedIntegrations.map((item) => item.id);
 
       if (activeConnectorIds.length === 0) {
@@ -524,43 +261,31 @@ export default function NewReportPage() {
         return;
       }
 
-      await parseJsonOrThrow(
-        await fetch(`${apiBase}/integrations/sync`, {
-          method: "POST",
-          headers: buildApiHeaders(workspace.tenantId),
-          body: JSON.stringify({
-            tenant_id: workspace.tenantId,
-            project_id: workspace.projectId,
-            connector_ids: activeConnectorIds,
-          }),
-        }),
-      );
-
-      const response = await fetch(`${apiBase}/runs`, {
-        method: "POST",
-        headers: buildApiHeaders(workspace.tenantId),
-        body: JSON.stringify({
-          tenant_id: workspace.tenantId,
-          project_id: workspace.projectId,
-          framework_target: frameworkTarget,
-          active_reg_pack_version: "core-pack-v1",
-          report_blueprint_version: factoryContext.blueprintVersion,
-          company_profile_ref: factoryContext.companyProfileId,
-          brand_kit_ref: factoryContext.brandKitId,
-          connector_scope: connectorScope,
-          scope_decision: {
-            reporting_year: form.reportingYear,
-            include_scope3: form.includeScope3,
-            operation_countries: form.operationCountries,
-            sustainability_owner: form.sustainabilityOwner,
-            board_approver: form.boardApprover,
-            approval_sla_days: Number(form.approvalSlaDays),
-            retrieval_tasks: buildRetrievalTasks(form, frameworkTarget),
-          },
-        }),
+      await syncIntegrations({
+        tenant_id: workspace.tenantId,
+        project_id: workspace.projectId,
+        connector_ids: activeConnectorIds,
       });
 
-      const payload = await parseJsonOrThrow<RunCreateResponse>(response);
+      const payload = await createRun({
+        tenant_id: workspace.tenantId,
+        project_id: workspace.projectId,
+        framework_target: frameworkTarget,
+        active_reg_pack_version: "core-pack-v1",
+        report_blueprint_version: factoryContext.blueprintVersion,
+        company_profile_ref: factoryContext.companyProfileId,
+        brand_kit_ref: factoryContext.brandKitId,
+        connector_scope: connectorScope,
+        scope_decision: {
+          reporting_year: validatedForm.reportingYear,
+          include_scope3: validatedForm.includeScope3,
+          operation_countries: validatedForm.operationCountries,
+          sustainability_owner: validatedForm.sustainabilityOwner,
+          board_approver: validatedForm.boardApprover,
+          approval_sla_days: Number(validatedForm.approvalSlaDays),
+          retrieval_tasks: buildRetrievalTasks(validatedForm, frameworkTarget),
+        },
+      });
       router.push(
         `/approval-center?created=1&mode=api&runId=${encodeURIComponent(payload.run_id)}&tenantId=${encodeURIComponent(workspace.tenantId)}&projectId=${encodeURIComponent(workspace.projectId)}`,
       );
@@ -972,7 +697,7 @@ export default function NewReportPage() {
                   onChange={(event) =>
                     setForm((prev) => ({
                       ...prev,
-                      framework: event.target.value as WizardState["framework"],
+                      framework: event.target.value as LaunchpadWizardState["framework"],
                     }))
                   }
                 >
@@ -1119,14 +844,14 @@ export default function NewReportPage() {
             </p>
           ) : null}
 
-          {submitError ? (
+          {pageError ? (
             <div
               className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
               data-testid="new-report-error"
             >
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>{submitError}</p>
+                <p>{pageError}</p>
               </div>
             </div>
           ) : null}

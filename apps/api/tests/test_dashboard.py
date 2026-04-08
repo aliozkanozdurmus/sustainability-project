@@ -227,6 +227,7 @@ def test_dashboard_overview_returns_live_aggregate_payload(tmp_path: Path) -> No
         payload = response.json()
         assert payload["hero"]["company_name"] == "Dashboard Holding"
         assert payload["hero"]["readiness_label"] == "Factory ready"
+        assert payload["hero"]["logo_uri"].startswith("data:image/svg+xml")
         assert len(payload["metrics"]) >= 4
         assert len(payload["connector_health"]) == 3
         assert any(item["artifact_type"] == "report_pdf" and item["available"] == 1 for item in payload["artifact_health"])

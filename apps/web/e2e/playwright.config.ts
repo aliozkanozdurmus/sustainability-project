@@ -1,6 +1,11 @@
 // Bu yapilandirma, web E2E kosumunun temel Playwright varsayimlarini belirler.
 
+import path from "node:path";
+
+import { loadEnvConfig } from "@next/env";
 import { defineConfig } from "@playwright/test";
+
+loadEnvConfig(path.resolve(__dirname, "..", ".."), process.env.NODE_ENV !== "production");
 
 export default defineConfig({
   testDir: "./specs",

@@ -26,10 +26,10 @@ import {
   Search,
   SearchCode,
   Settings2,
-  ShieldCheck,
   X,
 } from "lucide-react";
 
+import { DEFAULT_BRAND_LOGO_PATH } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -243,8 +243,13 @@ function SidebarContent({
     <>
       <div className="rounded-[1.7rem] border border-white/55 bg-white/46 px-3.5 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)]">
         <div className="flex items-center gap-3">
-          <div className="flex size-12 items-center justify-center rounded-[1.1rem] bg-[linear-gradient(135deg,var(--accent-soft),white)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
-            <ShieldCheck className="size-5 text-[color:var(--accent-strong)]" />
+          <div className="flex size-12 items-center justify-center overflow-hidden rounded-[1.1rem] bg-[linear-gradient(135deg,var(--accent-soft),white)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+            <img
+              src={DEFAULT_BRAND_LOGO_PATH}
+              alt="Veni AI brand logo"
+              data-testid="app-shell-brand-logo"
+              className="size-10 object-contain"
+            />
           </div>
           <div>
             <p className="text-[18px] font-semibold tracking-[-0.04em] text-foreground">Veni AI</p>

@@ -2,7 +2,7 @@
 
 // Bu sayfa, ERP onboarding akisini setup yuzeyinde toplar.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2, PlayCircle, RefreshCw, ShieldCheck, Wrench } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
@@ -16,122 +16,20 @@ import {
   SurfaceCard,
   fieldClassName,
 } from "@/components/workbench-ui";
-import { buildApiHeaders, getApiBaseUrl, parseJsonOrThrow } from "@/lib/api/client";
+import { getApiBaseUrl } from "@/lib/api/client";
+import {
+  buildIntegrationFormState,
+  EMPTY_INTEGRATION_FORM,
+  type ConnectorOperationResponse,
+  type IntegrationDetailResponse,
+  type IntegrationFormState,
+  type WorkspaceIntegrationSummary as IntegrationSummary,
+  useIntegrationDetailQuery,
+  useIntegrationSummariesQuery,
+  useRunConnectorOperationMutation,
+  useSaveIntegrationProfileMutation,
+} from "@/lib/api/integrations";
 import { useWorkspaceContext } from "@/lib/api/workspace-store";
-
-type HealthMetric = {
-  key: string;
-  label: string;
-  score: number;
-  status: string;
-  detail: string;
-};
-
-type IntegrationSummary = {
-  id: string;
-  connector_type: string;
-  display_name: string;
-  status: string;
-  support_tier: "certified" | "beta" | "unsupported";
-  certified_variant: string | null;
-  product_version: string | null;
-  health_band: "green" | "amber" | "red";
-  last_discovered_at: string | null;
-  last_preflight_at: string | null;
-  last_preview_sync_at: string | null;
-  last_synced_at: string | null;
-  assigned_agent_status: string | null;
-};
-
-type WorkspaceContextResponse = {
-  integrations: IntegrationSummary[];
-};
-
-type IntegrationDetailResponse = {
-  id: string;
-  connector_type: string;
-  display_name: string;
-  auth_mode: string;
-  base_url: string | null;
-  resource_path: string | null;
-  status: string;
-  mapping_version: string;
-  certified_variant: string | null;
-  product_version: string | null;
-  support_tier: "certified" | "beta" | "unsupported";
-  connectivity_mode: string;
-  credential_ref: string | null;
-  health_band: "green" | "amber" | "red";
-  health_status: {
-    score: number;
-    band: "green" | "amber" | "red";
-    metrics: HealthMetric[];
-    operator_message: string;
-    support_hint: string;
-    recommended_action: string;
-    retryable: boolean;
-    support_matrix_version: string;
-  } | null;
-  assigned_agent_id: string | null;
-  normalization_policy: Record<string, unknown>;
-  connection_profile: Record<string, unknown>;
-};
-
-type ConnectorOperationResponse = {
-  operation_id: string;
-  operation_type: string;
-  status: string;
-  current_stage: string;
-  support_tier: "certified" | "beta" | "unsupported";
-  health_band: "green" | "amber" | "red";
-  operator_message: string | null;
-  support_hint: string | null;
-  recommended_action: string | null;
-  retryable: boolean;
-  error_code: string | null;
-  error_message: string | null;
-  result: Record<string, unknown>;
-  diagnostics: Record<string, unknown>;
-  artifact: {
-    artifact_id: string;
-    filename: string;
-    download_path: string;
-  } | null;
-};
-
-type IntegrationFormState = {
-  credentialRef: string;
-  certifiedVariant: string;
-  productVersion: string;
-  serviceUrl: string;
-  resourcePath: string;
-  host: string;
-  companyCode: string;
-  firmCode: string;
-  databaseName: string;
-  sqlViewName: string;
-  viewSchema: string;
-  authMethod: string;
-  username: string;
-  instanceName: string;
-};
-
-const EMPTY_FORM: IntegrationFormState = {
-  credentialRef: "",
-  certifiedVariant: "",
-  productVersion: "",
-  serviceUrl: "",
-  resourcePath: "",
-  host: "",
-  companyCode: "",
-  firmCode: "",
-  databaseName: "",
-  sqlViewName: "",
-  viewSchema: "",
-  authMethod: "",
-  username: "",
-  instanceName: "",
-};
 
 function toneFromBand(band: "green" | "amber" | "red") {
   if (band === "green") {
@@ -143,118 +41,71 @@ function toneFromBand(band: "green" | "amber" | "red") {
   return "critical" as const;
 }
 
-function buildFormState(detail: IntegrationDetailResponse): IntegrationFormState {
-  const profile = detail.connection_profile ?? {};
-  return {
-    credentialRef: detail.credential_ref ?? "",
-    certifiedVariant: detail.certified_variant ?? "",
-    productVersion: detail.product_version ?? "",
-    serviceUrl: String(profile.service_url ?? ""),
-    resourcePath: String(profile.resource_path ?? detail.resource_path ?? ""),
-    host: String(profile.host ?? ""),
-    companyCode: String(profile.company_code ?? ""),
-    firmCode: String(profile.firm_code ?? ""),
-    databaseName: String(profile.database_name ?? ""),
-    sqlViewName: String(profile.sql_view_name ?? ""),
-    viewSchema: String(profile.view_schema ?? ""),
-    authMethod: String(profile.auth_method ?? detail.auth_mode ?? ""),
-    username: String(profile.username ?? ""),
-    instanceName: String(profile.instance_name ?? ""),
-  };
-}
-
 export default function IntegrationsSetupPage() {
   const workspace = useWorkspaceContext();
-  const [summaries, setSummaries] = useState<IntegrationSummary[]>([]);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<IntegrationDetailResponse | null>(null);
-  const [form, setForm] = useState<IntegrationFormState>(EMPTY_FORM);
+  const [form, setForm] = useState<IntegrationFormState>(EMPTY_INTEGRATION_FORM);
   const [latestOperation, setLatestOperation] = useState<ConnectorOperationResponse | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const summariesQuery = useIntegrationSummariesQuery(workspace);
+  const summaries = summariesQuery.data ?? [];
+  const detailQuery = useIntegrationDetailQuery(workspace, selectedIntegrationId);
+  const detail = detailQuery.data ?? null;
+  const saveProfileMutation = useSaveIntegrationProfileMutation(workspace);
+  const operationMutation = useRunConnectorOperationMutation(workspace);
+  const busy =
+    summariesQuery.isFetching ||
+    detailQuery.isFetching ||
+    saveProfileMutation.isPending ||
+    operationMutation.isPending;
+  const queryError =
+    summariesQuery.error instanceof Error
+      ? summariesQuery.error.message
+      : detailQuery.error instanceof Error
+        ? detailQuery.error.message
+        : null;
 
   const selectedSummary = useMemo(
     () => summaries.find((item) => item.id === selectedIntegrationId) ?? null,
     [selectedIntegrationId, summaries],
   );
 
-  const loadWorkspaceContext = useCallback(async (selectFirst = false) => {
-    if (!workspace) {
-      return;
-    }
-    const apiBase = getApiBaseUrl();
-    const payload = await parseJsonOrThrow<WorkspaceContextResponse>(
-      await fetch(
-        `${apiBase}/catalog/workspace-context?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}`,
-        { headers: buildApiHeaders(workspace.tenantId) },
-      ),
-    );
-    setSummaries(payload.integrations);
-    if (selectFirst) {
-      setSelectedIntegrationId((current) => current ?? payload.integrations[0]?.id ?? null);
-    }
-  }, [workspace]);
-
-  const loadIntegrationDetail = useCallback(async (integrationId: string) => {
-    if (!workspace) {
-      return;
-    }
-    const apiBase = getApiBaseUrl();
-    const payload = await parseJsonOrThrow<IntegrationDetailResponse>(
-      await fetch(
-        `${apiBase}/integrations/connectors/${encodeURIComponent(integrationId)}?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}`,
-        { headers: buildApiHeaders(workspace.tenantId) },
-      ),
-    );
-    setDetail(payload);
-    setForm(buildFormState(payload));
-  }, [workspace]);
-
   useEffect(() => {
-    if (!workspace) {
-      return;
+    if (!selectedIntegrationId && summaries[0]?.id) {
+      setSelectedIntegrationId(summaries[0].id);
     }
-    void loadWorkspaceContext(true).catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : "Workspace context could not be loaded.");
-    });
-  }, [loadWorkspaceContext, workspace]);
+  }, [selectedIntegrationId, summaries]);
 
   useEffect(() => {
     if (!selectedIntegrationId) {
-      setDetail(null);
-      setForm(EMPTY_FORM);
+      setForm(EMPTY_INTEGRATION_FORM);
       return;
     }
-    void loadIntegrationDetail(selectedIntegrationId).catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : "Integration detail could not be loaded.");
-    });
-  }, [loadIntegrationDetail, selectedIntegrationId, workspace]);
+    if (detail) {
+      setForm(buildIntegrationFormState(detail));
+    }
+  }, [detail, selectedIntegrationId]);
 
-  async function runOperation(path: string, body: Record<string, unknown>) {
+  async function runOperation(
+    operation: "discover" | "preflight" | "preview-sync" | "replay" | "support-bundle",
+    body: { limit?: number; mode?: "resume" | "reset_cursor" | "backfill_window" } = {},
+  ) {
     if (!workspace || !selectedIntegrationId) {
       return;
     }
-    setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const apiBase = getApiBaseUrl();
-      const payload = await parseJsonOrThrow<ConnectorOperationResponse>(
-        await fetch(`${apiBase}${path}`, {
-          method: "POST",
-          headers: buildApiHeaders(workspace.tenantId),
-          body: JSON.stringify(body),
-        }),
-      );
+      const payload = await operationMutation.mutateAsync({
+        integrationId: selectedIntegrationId,
+        operation,
+        body,
+      });
       setLatestOperation(payload);
-      await loadWorkspaceContext();
-      await loadIntegrationDetail(selectedIntegrationId);
       setNotice(payload.operator_message ?? "Operation completed.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Connector operation failed.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -262,53 +113,17 @@ export default function IntegrationsSetupPage() {
     if (!workspace || !detail) {
       return;
     }
-    setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const apiBase = getApiBaseUrl();
-      const payload = await parseJsonOrThrow<IntegrationDetailResponse>(
-        await fetch(`${apiBase}/integrations/connectors`, {
-          method: "POST",
-          headers: buildApiHeaders(workspace.tenantId),
-          body: JSON.stringify({
-            tenant_id: workspace.tenantId,
-            project_id: workspace.projectId,
-            connector_type: detail.connector_type,
-            display_name: detail.display_name,
-            auth_mode: detail.auth_mode,
-            base_url: detail.base_url,
-            resource_path: detail.resource_path,
-            mapping_version: detail.mapping_version,
-            certified_variant: form.certifiedVariant,
-            product_version: form.productVersion,
-            connectivity_mode: detail.connectivity_mode,
-            credential_ref: form.credentialRef,
-            assigned_agent_id: detail.assigned_agent_id,
-            connection_profile: {
-              service_url: form.serviceUrl || undefined,
-              resource_path: form.resourcePath || undefined,
-              host: form.host || undefined,
-              company_code: form.companyCode || undefined,
-              firm_code: form.firmCode || undefined,
-              database_name: form.databaseName || undefined,
-              sql_view_name: form.sqlViewName || undefined,
-              view_schema: form.viewSchema || undefined,
-              auth_method: form.authMethod || undefined,
-              username: form.username || undefined,
-              instance_name: form.instanceName || undefined,
-            },
-          }),
-        }),
-      );
-      setDetail(payload);
-      setForm(buildFormState(payload));
-      await loadWorkspaceContext();
+      const payload = await saveProfileMutation.mutateAsync({
+        detail,
+        form,
+      });
+      setForm(buildIntegrationFormState(payload));
       setNotice("Connector profile saved. You can continue with discovery.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Connector profile could not be saved.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -399,11 +214,16 @@ export default function IntegrationsSetupPage() {
                     ) : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" onClick={() => void handleSaveProfile()} disabled={busy}>
+                    <Button
+                      type="button"
+                      onClick={() => void handleSaveProfile()}
+                      disabled={busy}
+                      data-testid="connector-save-profile-button"
+                    >
                       {busy ? <Loader2 className="size-4 animate-spin" /> : <Wrench className="size-4" />}
                       Save Profile
                     </Button>
-                    <Button type="button" variant="outline" onClick={() => void loadIntegrationDetail(detail.id)} disabled={busy}>
+                    <Button type="button" variant="outline" onClick={() => void detailQuery.refetch()} disabled={busy}>
                       <RefreshCw className="size-4" />
                       Refresh Detail
                     </Button>
@@ -413,23 +233,23 @@ export default function IntegrationsSetupPage() {
                 <SurfaceCard className="space-y-4 p-5">
                   <SectionHeading eyebrow="Onboarding" title="Operational Gating" description="Discovery -> preflight -> 20-record preview sync -> activation readiness." />
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="outline" onClick={() => void runOperation(`/integrations/connectors/${detail.id}/discover`, { tenant_id: workspace.tenantId, project_id: workspace.projectId })} disabled={busy} data-testid="connector-discover-button">
+                    <Button type="button" variant="outline" onClick={() => void runOperation("discover")} disabled={busy} data-testid="connector-discover-button">
                       <PlayCircle className="size-4" />
                       Discover
                     </Button>
-                    <Button type="button" variant="outline" onClick={() => void runOperation(`/integrations/connectors/${detail.id}/preflight`, { tenant_id: workspace.tenantId, project_id: workspace.projectId })} disabled={busy} data-testid="connector-preflight-button">
+                    <Button type="button" variant="outline" onClick={() => void runOperation("preflight")} disabled={busy} data-testid="connector-preflight-button">
                       <ShieldCheck className="size-4" />
                       Preflight
                     </Button>
-                    <Button type="button" onClick={() => void runOperation(`/integrations/connectors/${detail.id}/preview-sync`, { tenant_id: workspace.tenantId, project_id: workspace.projectId, limit: 20 })} disabled={busy} data-testid="connector-preview-button">
+                    <Button type="button" onClick={() => void runOperation("preview-sync", { limit: 20 })} disabled={busy} data-testid="connector-preview-button">
                       {busy ? <Loader2 className="size-4 animate-spin" /> : <PlayCircle className="size-4" />}
                       Preview 20
                     </Button>
-                    <Button type="button" variant="outline" onClick={() => void runOperation(`/integrations/connectors/${detail.id}/replay`, { tenant_id: workspace.tenantId, project_id: workspace.projectId, mode: "reset_cursor" })} disabled={busy}>
+                    <Button type="button" variant="outline" onClick={() => void runOperation("replay", { mode: "reset_cursor" })} disabled={busy}>
                       <RefreshCw className="size-4" />
                       Reset Cursor
                     </Button>
-                    <Button type="button" variant="outline" onClick={() => void runOperation(`/integrations/connectors/${detail.id}/support-bundle`, { tenant_id: workspace.tenantId, project_id: workspace.projectId })} disabled={busy} data-testid="connector-support-bundle-button">
+                    <Button type="button" variant="outline" onClick={() => void runOperation("support-bundle")} disabled={busy} data-testid="connector-support-bundle-button">
                       <Download className="size-4" />
                       Support Bundle
                     </Button>
@@ -492,8 +312,16 @@ export default function IntegrationsSetupPage() {
               </>
             )}
 
-            {error ? <SubtleAlert tone="critical" title="Operation failed">{error}</SubtleAlert> : null}
-            {notice ? <SubtleAlert tone="good" title="Status updated">{notice}</SubtleAlert> : null}
+            {error || queryError ? (
+              <SubtleAlert tone="critical" title="Operation failed" data-testid="integrations-error">
+                {error ?? queryError}
+              </SubtleAlert>
+            ) : null}
+            {notice ? (
+              <SubtleAlert tone="good" title="Status updated" data-testid="integrations-notice">
+                {notice}
+              </SubtleAlert>
+            ) : null}
           </div>
         </div>
       )}

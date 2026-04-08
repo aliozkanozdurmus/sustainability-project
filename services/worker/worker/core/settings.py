@@ -10,11 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 def _default_env_files() -> tuple[str, ...]:
     repo_root = Path(__file__).resolve().parents[4]
-    candidates = (
-        repo_root / ".env",
-        repo_root / "services" / "worker" / ".env",
-    )
-    return tuple(str(path) for path in candidates)
+    return (str(repo_root / ".env"),)
 
 
 def _is_local_dev_database_host(database_url: str) -> bool:

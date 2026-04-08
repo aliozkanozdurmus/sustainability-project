@@ -18,65 +18,18 @@ import {
   SurfaceCard,
 } from "@/components/workbench-ui";
 import {
-  buildApiHeaders,
-  getApiBaseUrl,
-  parseJsonOrThrow,
-} from "@/lib/api/client";
+  type DocumentUploadResponse,
+  type ExtractionQueueResponse,
+  type ExtractionResponse,
+  type ExtractionStatusResponse,
+  type IndexStatusResponse,
+  useExtractDocumentMutation,
+  useQueueDocumentExtractionMutation,
+  useReadExtractionStatusMutation,
+  useReadIndexStatusMutation,
+  useUploadDocumentMutation,
+} from "@/lib/api/documents";
 import { useWorkspaceContext } from "@/lib/api/workspace-store";
-
-type DocumentUploadResponse = {
-  document_id: string;
-  tenant_id: string;
-  project_id: string;
-  filename: string;
-  document_type: string;
-  storage_uri: string;
-  checksum: string;
-  mime_type: string | null;
-  status: string;
-  ingested_at: string;
-};
-
-type ExtractionResponse = {
-  extraction_id: string;
-  source_document_id: string;
-  status: string;
-  provider: string;
-  quality_score: number | null;
-  extracted_text_uri: string | null;
-  raw_payload_uri: string | null;
-  chunk_count: number;
-};
-
-type ExtractionQueueResponse = {
-  extraction_id: string;
-  source_document_id: string;
-  status: string;
-  queue_job_id: string;
-};
-
-type ExtractionStatusResponse = {
-  extraction_id: string;
-  source_document_id: string;
-  status: string;
-  provider: string;
-  extraction_mode: string;
-  quality_score: number | null;
-  chunk_count: number;
-  error_message: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-};
-
-type IndexStatusResponse = {
-  extraction_id: string;
-  source_document_id: string;
-  status: string;
-  index_provider: string;
-  index_name: string;
-  indexed_chunk_count: number;
-  error_message: string | null;
-};
 
 export default function EvidenceCenterPage() {
   const workspace = useWorkspaceContext();
@@ -87,7 +40,6 @@ export default function EvidenceCenterPage() {
   const [activeDocumentId, setActiveDocumentId] = useState("");
   const [extractionId, setExtractionId] = useState("");
   const [extractionMode, setExtractionMode] = useState("ocr");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState<DocumentUploadResponse | null>(null);
@@ -95,6 +47,17 @@ export default function EvidenceCenterPage() {
   const [extractionQueued, setExtractionQueued] = useState<ExtractionQueueResponse | null>(null);
   const [extractionStatus, setExtractionStatus] = useState<ExtractionStatusResponse | null>(null);
   const [indexStatus, setIndexStatus] = useState<IndexStatusResponse | null>(null);
+  const uploadMutation = useUploadDocumentMutation(workspace);
+  const extractMutation = useExtractDocumentMutation(workspace);
+  const queueExtractMutation = useQueueDocumentExtractionMutation(workspace);
+  const extractionStatusMutation = useReadExtractionStatusMutation(workspace);
+  const indexStatusMutation = useReadIndexStatusMutation(workspace);
+  const busy =
+    uploadMutation.isPending ||
+    extractMutation.isPending ||
+    queueExtractMutation.isPending ||
+    extractionStatusMutation.isPending ||
+    indexStatusMutation.isPending;
   const qualityScore = extractionStatus?.quality_score ?? extractionSync?.quality_score ?? null;
   const chunkCount = extractionStatus?.chunk_count ?? extractionSync?.chunk_count ?? 0;
   const indexedChunkCount = indexStatus?.indexed_chunk_count ?? 0;
@@ -140,32 +103,19 @@ export default function EvidenceCenterPage() {
       return;
     }
 
-    setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const formData = new FormData();
-      formData.set("tenant_id", workspace.tenantId);
-      formData.set("project_id", workspace.projectId);
-      formData.set("document_type", documentType);
-      if (issuedAt.trim().length > 0) {
-        formData.set("issued_at", issuedAt.trim());
-      }
-      formData.set("file", selectedFile);
-
-      const response = await fetch(`${getApiBaseUrl()}/documents/upload`, {
-        method: "POST",
-        headers: buildApiHeaders(workspace.tenantId, { includeJsonContentType: false }),
-        body: formData,
+      const payload = await uploadMutation.mutateAsync({
+        documentType,
+        issuedAt,
+        file: selectedFile,
       });
-      const payload = await parseJsonOrThrow<DocumentUploadResponse>(response);
       setUploaded(payload);
       setActiveDocumentId(payload.document_id);
       setNotice(`Document uploaded: ${payload.document_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -174,27 +124,18 @@ export default function EvidenceCenterPage() {
       setError("Workspace and document id are required.");
       return;
     }
-    setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/documents/${encodeURIComponent(activeDocumentId)}/extract`, {
-        method: "POST",
-        headers: buildApiHeaders(workspace.tenantId),
-        body: JSON.stringify({
-          tenant_id: workspace.tenantId,
-          project_id: workspace.projectId,
-          extraction_mode: extractionMode,
-        }),
+      const payload = await extractMutation.mutateAsync({
+        documentId: activeDocumentId,
+        extractionMode,
       });
-      const payload = await parseJsonOrThrow<ExtractionResponse>(response);
       setExtractionSync(payload);
       setExtractionId(payload.extraction_id);
       setNotice(`Extraction completed: ${payload.extraction_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Extraction failed.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -203,30 +144,18 @@ export default function EvidenceCenterPage() {
       setError("Workspace and document id are required.");
       return;
     }
-    setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch(
-        `${getApiBaseUrl()}/documents/${encodeURIComponent(activeDocumentId)}/extract/queue`,
-        {
-          method: "POST",
-          headers: buildApiHeaders(workspace.tenantId),
-          body: JSON.stringify({
-            tenant_id: workspace.tenantId,
-            project_id: workspace.projectId,
-            extraction_mode: extractionMode,
-          }),
-        },
-      );
-      const payload = await parseJsonOrThrow<ExtractionQueueResponse>(response);
+      const payload = await queueExtractMutation.mutateAsync({
+        documentId: activeDocumentId,
+        extractionMode,
+      });
       setExtractionQueued(payload);
       setExtractionId(payload.extraction_id);
       setNotice(`Queued extraction: ${payload.extraction_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Queue extraction failed.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -235,21 +164,15 @@ export default function EvidenceCenterPage() {
       setError("Workspace, document id, and extraction id are required.");
       return;
     }
-    setBusy(true);
     setError(null);
     try {
-      const response = await fetch(
-        `${getApiBaseUrl()}/documents/${encodeURIComponent(activeDocumentId)}/extractions/${encodeURIComponent(extractionId)}?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}`,
-        {
-          headers: buildApiHeaders(workspace.tenantId),
-        },
-      );
-      const payload = await parseJsonOrThrow<ExtractionStatusResponse>(response);
+      const payload = await extractionStatusMutation.mutateAsync({
+        documentId: activeDocumentId,
+        extractionId,
+      });
       setExtractionStatus(payload);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Extraction status fetch failed.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -258,21 +181,15 @@ export default function EvidenceCenterPage() {
       setError("Workspace, document id, and extraction id are required.");
       return;
     }
-    setBusy(true);
     setError(null);
     try {
-      const response = await fetch(
-        `${getApiBaseUrl()}/documents/${encodeURIComponent(activeDocumentId)}/extractions/${encodeURIComponent(extractionId)}/index-status?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}`,
-        {
-          headers: buildApiHeaders(workspace.tenantId),
-        },
-      );
-      const payload = await parseJsonOrThrow<IndexStatusResponse>(response);
+      const payload = await indexStatusMutation.mutateAsync({
+        documentId: activeDocumentId,
+        extractionId,
+      });
       setIndexStatus(payload);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Index status fetch failed.");
-    } finally {
-      setBusy(false);
     }
   }
 

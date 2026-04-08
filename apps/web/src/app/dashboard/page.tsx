@@ -2,7 +2,7 @@
 
 // Bu sayfa, dashboard ekraninin ana deneyimini kurar.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -19,11 +19,10 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import {
-  buildApiHeaders,
-  buildDashboardOverviewPath,
-  getApiBaseUrl,
-  parseJsonOrThrow,
-} from "@/lib/api/client";
+  type DashboardOverviewResponse,
+  type DashboardTone,
+  useDashboardOverviewQuery,
+} from "@/lib/api/dashboard";
 import { useWorkspaceContext } from "@/lib/api/workspace-store";
 import {
   ChecklistStack,
@@ -45,124 +44,18 @@ import {
   SparklineArea,
   StackedBarChart,
 } from "@/components/workbench-charts";
+import { resolveBrandLogoUri } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
-type Tone = "good" | "attention" | "critical" | "neutral";
-
-type KpiTrendPoint = {
-  label: string;
-  value: number;
-};
-
-type DashboardMetric = {
-  key: string;
-  label: string;
-  display_value: string;
-  detail?: string | null;
-  delta_text?: string | null;
-  status: Tone;
-  trend: KpiTrendPoint[];
-};
-
-type PipelineLane = {
-  lane_id: string;
-  label: string;
-  count: number;
-  total: number;
-  ratio: number;
-  status: Tone;
-  description: string;
-};
-
-type ConnectorHealthItem = {
-  connector_id: string;
-  connector_type: string;
-  display_name: string;
-  status: string;
-  auth_mode: string;
-  last_synced_at_utc?: string | null;
-  job_status?: string | null;
-  current_stage?: string | null;
-  record_count: number;
-  inserted_count: number;
-  updated_count: number;
-  freshness_hours?: number | null;
-  status_tone: Tone;
-};
-
-type RiskItem = {
-  risk_id: string;
-  title: string;
-  severity: Tone;
-  count: number;
-  detail: string;
-};
-
-type ScheduleItem = {
-  item_id: string;
-  title: string;
-  subtitle: string;
-  slot_label: string;
-  status: Tone;
-  run_id?: string | null;
-};
-
-type ArtifactHealthSummary = {
-  artifact_type: string;
-  label: string;
-  available: number;
-  total_runs: number;
-  completion_ratio: number;
-};
-
-type ActivityItem = {
-  activity_id: string;
-  title: string;
-  detail: string;
-  category: string;
-  status: Tone;
-  occurred_at_utc?: string | null;
-};
-
-type RunQueueItem = {
-  run_id: string;
-  report_run_status: string;
-  active_node: string;
-  publish_ready: boolean;
-  human_approval: string;
-  package_status: string;
-  report_quality_score?: number | null;
-  latest_sync_at_utc?: string | null;
-  visual_generation_status: string;
-};
-
-type DashboardOverviewResponse = {
-  hero: {
-    tenant_name: string;
-    company_name: string;
-    project_name: string;
-    project_code: string;
-    sector?: string | null;
-    headquarters?: string | null;
-    reporting_currency: string;
-    blueprint_version?: string | null;
-    readiness_label: string;
-    readiness_score: number;
-    summary: string;
-    logo_uri?: string | null;
-    primary_color?: string | null;
-    accent_color?: string | null;
-  };
-  metrics: DashboardMetric[];
-  pipeline: PipelineLane[];
-  connector_health: ConnectorHealthItem[];
-  risks: RiskItem[];
-  schedule: ScheduleItem[];
-  artifact_health: ArtifactHealthSummary[];
-  activity_feed: ActivityItem[];
-  run_queue: RunQueueItem[];
-  generated_at_utc: string;
-};
+type Tone = DashboardTone;
+type DashboardMetric = DashboardOverviewResponse["metrics"][number];
+type PipelineLane = DashboardOverviewResponse["pipeline"][number];
+type ConnectorHealthItem = DashboardOverviewResponse["connector_health"][number];
+type RiskItem = DashboardOverviewResponse["risks"][number];
+type ScheduleItem = DashboardOverviewResponse["schedule"][number];
+type ArtifactHealthSummary = DashboardOverviewResponse["artifact_health"][number];
+type ActivityItem = DashboardOverviewResponse["activity_feed"][number];
+type RunQueueItem = DashboardOverviewResponse["run_queue"][number];
 
 function formatDateTime(value?: string | null) {
   if (!value) return "Pending";
@@ -426,33 +319,10 @@ function DashboardLoadingState() {
 
 export default function DashboardPage() {
   const workspace = useWorkspaceContext();
-  const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadOverview = useCallback(async () => {
-    if (!workspace) {
-      setOverview(null);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch(`${getApiBaseUrl()}${buildDashboardOverviewPath(workspace)}`, {
-        headers: buildApiHeaders(workspace.tenantId),
-      });
-      const payload = await parseJsonOrThrow<DashboardOverviewResponse>(response);
-      setOverview(payload);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load dashboard overview.");
-    } finally {
-      setBusy(false);
-    }
-  }, [workspace]);
-
-  useEffect(() => {
-    void loadOverview();
-  }, [loadOverview]);
+  const overviewQuery = useDashboardOverviewQuery(workspace);
+  const overview = overviewQuery.data ?? null;
+  const busy = overviewQuery.isPending || overviewQuery.isFetching;
+  const error = overviewQuery.error instanceof Error ? overviewQuery.error.message : null;
 
   const headlineMetrics = useMemo(() => overview?.metrics.slice(0, 4) ?? [], [overview]);
   const spotlightMetrics = useMemo(() => overview?.metrics.slice(4) ?? [], [overview]);
@@ -517,6 +387,7 @@ export default function DashboardPage() {
       })) ?? [],
     [overview],
   );
+  const heroLogoUri = overview ? resolveBrandLogoUri(overview.hero.logo_uri) : null;
 
   return (
     <AppShell
@@ -553,7 +424,7 @@ export default function DashboardPage() {
             {overview?.hero.blueprint_version ? <StatChip label="blueprint" value={overview.hero.blueprint_version} /> : null}
             {overview ? <StatChip label="updated" value={formatDateTime(overview.generated_at_utc)} /> : null}
           </div>
-          <Button type="button" variant="outline" onClick={() => void loadOverview()} disabled={busy}>
+          <Button type="button" variant="outline" onClick={() => void overviewQuery.refetch()} disabled={busy}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
             Refresh board
           </Button>
@@ -572,51 +443,61 @@ export default function DashboardPage() {
         <>
           <div className="grid dense-grid xl:grid-cols-[1.18fr_0.82fr]">
             <SurfaceCard className="overflow-hidden px-5 py-5 md:px-6 md:py-6">
-              <div className="flex flex-col gap-5">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-                  <div className="max-w-3xl">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="pill-dark">Executive desk</span>
-                      <StatusChip
-                        tone={
-                          overview.hero.readiness_score >= 75
-                            ? "good"
-                            : overview.hero.readiness_score >= 50
-                              ? "attention"
-                              : "critical"
-                        }
-                      >
-                        {overview.hero.readiness_label}
-                      </StatusChip>
-                      {overview.hero.primary_color ? (
-                        <span className="pill-surface">
-                          brand
-                          <span
-                            className="ml-2 inline-block size-2.5 rounded-full"
-                            style={{ backgroundColor: overview.hero.primary_color }}
-                          />
-                          {overview.hero.accent_color ? (
-                            <span
-                              className="ml-1 inline-block size-2.5 rounded-full"
-                              style={{ backgroundColor: overview.hero.accent_color }}
-                            />
+                <div className="flex flex-col gap-5">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:gap-5">
+                      <div className="flex size-24 shrink-0 items-center justify-center rounded-[2rem] border border-[rgba(23,22,19,0.06)] bg-[linear-gradient(180deg,#f8f4ed_0%,#ffffff_100%)] p-3 shadow-[0_18px_36px_rgba(38,36,33,0.08)]">
+                        <img
+                          src={heroLogoUri ?? resolveBrandLogoUri(null)}
+                          alt={`${overview.hero.company_name} brand logo`}
+                          data-testid="dashboard-hero-logo"
+                          className="size-full object-contain"
+                        />
+                      </div>
+                      <div className="max-w-3xl">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="pill-dark">Executive desk</span>
+                          <StatusChip
+                            tone={
+                              overview.hero.readiness_score >= 75
+                                ? "good"
+                                : overview.hero.readiness_score >= 50
+                                  ? "attention"
+                                  : "critical"
+                            }
+                          >
+                            {overview.hero.readiness_label}
+                          </StatusChip>
+                          {overview.hero.primary_color ? (
+                            <span className="pill-surface">
+                              brand
+                              <span
+                                className="ml-2 inline-block size-2.5 rounded-full"
+                                style={{ backgroundColor: overview.hero.primary_color }}
+                              />
+                              {overview.hero.accent_color ? (
+                                <span
+                                  className="ml-1 inline-block size-2.5 rounded-full"
+                                  style={{ backgroundColor: overview.hero.accent_color }}
+                                />
+                              ) : null}
+                            </span>
                           ) : null}
-                        </span>
-                      ) : null}
+                        </div>
+                        <h2 className="mt-4 text-[34px] font-semibold tracking-[-0.075em] text-foreground md:text-[42px]">
+                          {reportingCycle}
+                        </h2>
+                        <p className="mt-2 flex flex-wrap items-center gap-2 text-[13px] font-medium text-[color:var(--foreground-soft)]">
+                          <Building2 className="size-4 text-[color:var(--foreground-muted)]" />
+                          <span>{overview.hero.company_name}</span>
+                          {overview.hero.sector ? <span>• {overview.hero.sector}</span> : null}
+                          {overview.hero.headquarters ? <span>• {overview.hero.headquarters}</span> : null}
+                        </p>
+                        <p className="mt-3 max-w-2xl text-[12px] leading-6 text-[color:var(--foreground-soft)]">
+                          {overview.hero.summary}
+                        </p>
+                      </div>
                     </div>
-                    <h2 className="mt-4 text-[34px] font-semibold tracking-[-0.075em] text-foreground md:text-[42px]">
-                      {reportingCycle}
-                    </h2>
-                    <p className="mt-2 flex flex-wrap items-center gap-2 text-[13px] font-medium text-[color:var(--foreground-soft)]">
-                      <Building2 className="size-4 text-[color:var(--foreground-muted)]" />
-                      <span>{overview.hero.company_name}</span>
-                      {overview.hero.sector ? <span>• {overview.hero.sector}</span> : null}
-                      {overview.hero.headquarters ? <span>• {overview.hero.headquarters}</span> : null}
-                    </p>
-                    <p className="mt-3 max-w-2xl text-[12px] leading-6 text-[color:var(--foreground-soft)]">
-                      {overview.hero.summary}
-                    </p>
-                  </div>
 
                   <div className="metric-grid sm:grid-cols-3 xl:min-w-[23.5rem]">
                     <HeroStatCard

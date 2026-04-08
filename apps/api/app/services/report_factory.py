@@ -10,9 +10,10 @@ from hashlib import sha256
 from html import escape
 from io import BytesIO
 import json
+import mimetypes
 from pathlib import Path
 from typing import Any, Iterable
-from urllib import error, request
+from urllib import error, parse, request
 
 from jinja2 import Template
 from PIL import Image, ImageDraw, ImageFilter
@@ -52,7 +53,12 @@ from app.models.core import (
     VerificationResult,
 )
 from app.services.blob_storage import BlobStorageService, get_blob_storage_service
-from app.services.report_context import build_report_factory_readiness, ensure_project_report_context
+from app.services.report_context import (
+    DEFAULT_BRAND_LOGO_URI,
+    build_report_factory_readiness,
+    ensure_project_report_context,
+    resolve_brand_logo_uri,
+)
 
 
 REPORT_PDF_ARTIFACT_TYPE = "report_pdf"
@@ -180,14 +186,96 @@ def _to_data_uri(payload: bytes, content_type: str) -> str:
     return f"data:{content_type};base64,{b64encode(payload).decode('ascii')}"
 
 
+def _guess_content_type(value: str, fallback: str = "application/octet-stream") -> str:
+    content_type, _ = mimetypes.guess_type(value)
+    return content_type or fallback
+
+
+def _load_data_uri_payload(uri: str) -> tuple[bytes, str] | None:
+    if not uri.startswith("data:") or "," not in uri:
+        return None
+    header, encoded = uri.split(",", 1)
+    metadata = header[5:]
+    parts = [part for part in metadata.split(";") if part]
+    content_type = parts[0] if parts and "/" in parts[0] else "text/plain;charset=US-ASCII"
+    if "base64" in parts[1:]:
+        return (b64decode(encoded), content_type)
+    return (parse.unquote_to_bytes(encoded), content_type)
+
+
+def _resolve_public_asset_path(asset_uri: str) -> Path | None:
+    if not asset_uri.startswith("/"):
+        return None
+    public_root = (settings.repo_root / "apps" / "web" / "public").resolve()
+    candidate = (public_root / asset_uri.lstrip("/")).resolve()
+    try:
+        candidate.relative_to(public_root)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+def _load_binary_asset(asset_uri: str) -> tuple[bytes, str] | None:
+    normalized = asset_uri.strip()
+    if not normalized:
+        return None
+
+    data_uri_payload = _load_data_uri_payload(normalized)
+    if data_uri_payload is not None:
+        return data_uri_payload
+
+    local_asset = _resolve_public_asset_path(normalized)
+    if local_asset is not None:
+        return (local_asset.read_bytes(), _guess_content_type(local_asset.name))
+
+    if normalized.startswith(("http://", "https://", "file://")):
+        try:
+            req = request.Request(normalized, headers={"User-Agent": "VeniAI-ReportFactory/1.0"})
+            with request.urlopen(req, timeout=20) as response:
+                payload = response.read()
+                content_type = response.headers.get_content_type() or _guess_content_type(normalized)
+                return (payload, content_type)
+        except Exception:
+            return None
+
+    return None
+
+
+def _coerce_reportlab_image_bytes(payload: bytes) -> bytes | None:
+    try:
+        with Image.open(BytesIO(payload)) as image:
+            converted = image.convert("RGBA")
+            buffer = BytesIO()
+            converted.save(buffer, format="PNG")
+            return buffer.getvalue()
+    except Exception:
+        return None
+
+
 def _resolve_brand_mark_uri(tenant: Tenant, brand: BrandKit) -> str:
-    logo_uri = (brand.logo_uri or "").strip()
-    if logo_uri:
+    logo_uri = resolve_brand_logo_uri(brand)
+    asset = _load_binary_asset(logo_uri)
+    if asset is not None:
+        payload, content_type = asset
+        return _to_data_uri(payload, content_type)
+    if logo_uri.startswith(("http://", "https://")):
         return logo_uri
     return _to_data_uri(
         _build_monogram_svg(tenant.name, brand).encode("utf-8"),
         "image/svg+xml",
     )
+
+
+def _resolve_reportlab_brand_mark_payload(brand: BrandKit) -> bytes | None:
+    for candidate in (resolve_brand_logo_uri(brand), DEFAULT_BRAND_LOGO_URI):
+        asset = _load_binary_asset(candidate)
+        if asset is None:
+            continue
+        payload, _content_type = asset
+        raster_payload = _coerce_reportlab_image_bytes(payload)
+        if raster_payload is not None:
+            return raster_payload
+    return None
 
 
 def _artifact_filename(project: Project, report_run: ReportRun, artifact_type: str, extension: str) -> str:
@@ -2061,6 +2149,7 @@ def _draw_cover_page(
     project: Project,
     company_profile: CompanyProfile,
     brand: BrandKit,
+    brand_mark_payload: bytes | None,
     hero_bytes: bytes,
     reporting_year: str,
     cover_metrics: list[dict[str, str]],
@@ -2090,6 +2179,28 @@ def _draw_cover_page(
         fill_color=primary,
         fill_alpha=0.16,
     )
+    if brand_mark_payload is not None:
+        _draw_round_box(
+            pdf,
+            x=PAGE_WIDTH - 132,
+            y=PAGE_HEIGHT - 118,
+            width=82,
+            height=82,
+            radius=24,
+            fill_color=colors.white,
+            fill_alpha=0.16,
+            stroke_color=colors.white,
+        )
+        pdf.drawImage(
+            ImageReader(BytesIO(brand_mark_payload)),
+            PAGE_WIDTH - 122,
+            PAGE_HEIGHT - 108,
+            width=62,
+            height=62,
+            mask="auto",
+            preserveAspectRatio=True,
+            anchor="c",
+        )
 
     pdf.setFillColor(colors.white)
     pdf.setFont(heading_font, 20)
@@ -2193,6 +2304,7 @@ def _draw_contents_page(
     pdf: pdf_canvas.Canvas,
     *,
     tenant: Tenant,
+    brand_mark_payload: bytes | None,
     toc_cards: list[dict[str, Any]],
     heading_font: str,
     body_font: str,
@@ -2207,6 +2319,27 @@ def _draw_contents_page(
     pdf.setFillColor(colors.HexColor("#13293d"))
     pdf.setFont(heading_font, 18)
     pdf.drawString(18, PAGE_HEIGHT - 34, tenant.name)
+    if brand_mark_payload is not None:
+        _draw_round_box(
+            pdf,
+            x=14,
+            y=PAGE_HEIGHT - 92,
+            width=56,
+            height=56,
+            radius=18,
+            fill_color=colors.HexColor("#f5efe5"),
+            stroke_color=colors.HexColor("#d8dee5"),
+        )
+        pdf.drawImage(
+            ImageReader(BytesIO(brand_mark_payload)),
+            20,
+            PAGE_HEIGHT - 86,
+            width=44,
+            height=44,
+            mask="auto",
+            preserveAspectRatio=True,
+            anchor="c",
+        )
     pdf.setFont(heading_font, 32)
     pdf.setFillColor(colors.HexColor("#f07f13"))
     pdf.drawString(120, PAGE_HEIGHT - 62, "İçindekiler")
@@ -2593,6 +2726,7 @@ def _render_reportlab_pdf(
         company_profile=company_profile,
         section_payloads=section_payloads,
     )
+    brand_mark_payload = _resolve_reportlab_brand_mark_payload(brand)
 
     cover_hero = visual_data.get("cover_hero")
     cover_bytes = (
@@ -2611,6 +2745,7 @@ def _render_reportlab_pdf(
         project=project,
         company_profile=company_profile,
         brand=brand,
+        brand_mark_payload=brand_mark_payload,
         hero_bytes=cover_bytes,
         reporting_year=reporting_year,
         cover_metrics=cover_metrics,
@@ -2623,6 +2758,7 @@ def _render_reportlab_pdf(
     _draw_contents_page(
         pdf,
         tenant=tenant,
+        brand_mark_payload=brand_mark_payload,
         toc_cards=toc_cards,
         heading_font=heading_font,
         body_font=body_font,

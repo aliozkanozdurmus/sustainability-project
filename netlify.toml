@@ -1,0 +1,9 @@
+# Optional Netlify target for the Next.js control center in apps/web.
+# Keep the connected site pointed at the repository root and use the web workspace build.
+
+[build]
+command = "pnpm --filter web build"
+
+[build.environment]
+NODE_VERSION = "20"
+PNPM_VERSION = "10.6.0"

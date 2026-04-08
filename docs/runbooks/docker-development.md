@@ -23,6 +23,8 @@ Production database policy remains Neon PostgreSQL.
 - Keeps blob storage, search index, and orchestration checkpoints on the repository filesystem for local inspection.
 
 ## Start the Stack
+Create `/.env` from `/.env.example` at the repository root before starting Docker Compose.
+
 ```bash
 docker compose up --build
 ```
@@ -36,9 +38,12 @@ docker compose up --build
 - Redis: `localhost:6379`
 
 ## Important Environment Behavior
+- Compose resolves shared runtime defaults from the repo-root `/.env`.
 - `ALLOW_LOCAL_DEV_DATABASE=true` is set only inside the compose workflow so the API and worker may use the local PostgreSQL container.
+- Compose overrides database and Redis endpoints inline for container-to-container networking.
+- Only `NEXT_PUBLIC_*` variables are passed into the web container environment.
 - Local filesystem fallbacks stay enabled for blob storage and search index.
-- Azure-backed features remain optional. If you need live OCR, Azure OpenAI, or Azure AI Search, inject the required credentials through untracked `.env` files or shell environment variables before starting the stack.
+- Azure-backed features remain optional. If you need live OCR, Azure OpenAI, or Azure AI Search, inject the required credentials through the untracked root `.env` or shell environment variables before starting the stack.
 
 ## Useful Commands
 ```bash

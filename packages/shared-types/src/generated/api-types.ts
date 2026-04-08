@@ -175,6 +175,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboard/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dashboard Overview */
+        get: operations["get_dashboard_overview_dashboard_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/documents/upload": {
         parameters: {
             query?: never;
@@ -288,6 +305,210 @@ export interface paths {
         put?: never;
         /** Create Or Update Integration Connector */
         post: operations["create_or_update_integration_connector_integrations_connectors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/connectors/{integration_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Integration Connector */
+        get: operations["get_integration_connector_integrations_connectors__integration_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/agents/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register Agent */
+        post: operations["register_agent_integrations_agents_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/agents/{agent_id}/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Heartbeat Agent */
+        post: operations["heartbeat_agent_integrations_agents__agent_id__heartbeat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/agents/{agent_id}/claim-next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Claim Next Operation */
+        post: operations["claim_next_operation_integrations_agents__agent_id__claim_next_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/connectors/{integration_id}/operations/{operation_id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Execute Claimed Operation */
+        post: operations["execute_claimed_operation_integrations_connectors__integration_id__operations__operation_id__execute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/connectors/{integration_id}/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discover Connector */
+        post: operations["discover_connector_integrations_connectors__integration_id__discover_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/connectors/{integration_id}/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preflight Connector */
+        post: operations["preflight_connector_integrations_connectors__integration_id__preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/connectors/{integration_id}/preview-sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Sync Connector */
+        post: operations["preview_sync_connector_integrations_connectors__integration_id__preview_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/connectors/{integration_id}/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replay Connector */
+        post: operations["replay_connector_integrations_connectors__integration_id__replay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/connectors/{integration_id}/support-bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export Support Bundle */
+        post: operations["export_support_bundle_integrations_connectors__integration_id__support_bundle_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/connectors/{integration_id}/operations/{operation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Connector Operation */
+        get: operations["get_connector_operation_integrations_connectors__integration_id__operations__operation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/connectors/{integration_id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Connector Artifact */
+        get: operations["download_connector_artifact_integrations_connectors__integration_id__artifacts__artifact_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -486,6 +707,38 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivityItem */
+        ActivityItem: {
+            /** Activity Id */
+            activity_id: string;
+            /** Title */
+            title: string;
+            /** Detail */
+            detail: string;
+            /** Category */
+            category: string;
+            /**
+             * Status
+             * @default neutral
+             * @enum {string}
+             */
+            status: "good" | "attention" | "critical" | "neutral";
+            /** Occurred At Utc */
+            occurred_at_utc?: string | null;
+        };
+        /** ArtifactHealthSummary */
+        ArtifactHealthSummary: {
+            /** Artifact Type */
+            artifact_type: string;
+            /** Label */
+            label: string;
+            /** Available */
+            available: number;
+            /** Total Runs */
+            total_runs: number;
+            /** Completion Ratio */
+            completion_ratio: number;
+        };
         /** AuthorizationDecision */
         AuthorizationDecision: {
             /** Allowed */
@@ -516,6 +769,8 @@ export interface components {
             project_id: string;
             /** Brand Name */
             brand_name: string;
+            /** Logo Uri */
+            logo_uri?: string | null;
             /** Primary Color */
             primary_color: string;
             /** Secondary Color */
@@ -526,6 +781,13 @@ export interface components {
             font_family_headings: string;
             /** Font Family Body */
             font_family_body: string;
+            /** Tone Name */
+            tone_name?: string | null;
+            /**
+             * Is Configured
+             * @default false
+             */
+            is_configured: boolean;
         };
         /** CompanyProfileResponse */
         CompanyProfileResponse: {
@@ -541,8 +803,337 @@ export interface components {
             sector?: string | null;
             /** Headquarters */
             headquarters?: string | null;
+            /** Description */
+            description?: string | null;
             /** Ceo Name */
             ceo_name?: string | null;
+            /** Ceo Message */
+            ceo_message?: string | null;
+            /** Sustainability Approach */
+            sustainability_approach?: string | null;
+            /**
+             * Is Configured
+             * @default false
+             */
+            is_configured: boolean;
+        };
+        /** ConnectorAgentHeartbeatRequest */
+        ConnectorAgentHeartbeatRequest: {
+            /** Status */
+            status: string;
+            /** Version */
+            version?: string | null;
+            /** Hostname */
+            hostname?: string | null;
+            /** Active Operation Id */
+            active_operation_id?: string | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ConnectorAgentRegisterRequest */
+        ConnectorAgentRegisterRequest: {
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Agent Key */
+            agent_key: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Agent Kind
+             * @enum {string}
+             */
+            agent_kind: "docker" | "windows_service";
+            /** Version */
+            version?: string | null;
+            /** Hostname */
+            hostname?: string | null;
+            /** Supported Connectors */
+            supported_connectors?: string[];
+            /** Capabilities */
+            capabilities?: string[];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ConnectorAgentResponse */
+        ConnectorAgentResponse: {
+            /** Agent Id */
+            agent_id: string;
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Agent Key */
+            agent_key: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Agent Kind
+             * @enum {string}
+             */
+            agent_kind: "docker" | "windows_service";
+            /** Status */
+            status: string;
+            /** Version */
+            version?: string | null;
+            /** Hostname */
+            hostname?: string | null;
+            /** Supported Connectors */
+            supported_connectors?: string[];
+            /** Capabilities */
+            capabilities?: string[];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Last Heartbeat At Utc */
+            last_heartbeat_at_utc?: string | null;
+        };
+        /** ConnectorArtifactResponse */
+        ConnectorArtifactResponse: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Integration Config Id */
+            integration_config_id: string;
+            /** Connector Operation Run Id */
+            connector_operation_run_id?: string | null;
+            /** Artifact Type */
+            artifact_type: string;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Checksum */
+            checksum?: string | null;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** Download Path */
+            download_path: string;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ConnectorClaimNextOperationResponse */
+        ConnectorClaimNextOperationResponse: {
+            operation?: components["schemas"]["ConnectorOperationResponse"] | null;
+        };
+        /** ConnectorConnectionProfileRequest */
+        ConnectorConnectionProfileRequest: {
+            /** Host */
+            host?: string | null;
+            /** Port */
+            port?: number | null;
+            /** Service Url */
+            service_url?: string | null;
+            /** Resource Path */
+            resource_path?: string | null;
+            /** Company Code */
+            company_code?: string | null;
+            /** Firm Code */
+            firm_code?: string | null;
+            /** Database Name */
+            database_name?: string | null;
+            /** Sql View Name */
+            sql_view_name?: string | null;
+            /** View Schema */
+            view_schema?: string | null;
+            /** Auth Method */
+            auth_method?: string | null;
+            /** Username */
+            username?: string | null;
+            /** Instance Name */
+            instance_name?: string | null;
+        };
+        /** ConnectorHealthItem */
+        ConnectorHealthItem: {
+            /** Connector Id */
+            connector_id: string;
+            /** Connector Type */
+            connector_type: string;
+            /** Display Name */
+            display_name: string;
+            /** Status */
+            status: string;
+            /** Auth Mode */
+            auth_mode: string;
+            /** Support Tier */
+            support_tier: string;
+            /** Certified Variant */
+            certified_variant?: string | null;
+            /** Health Band */
+            health_band: string;
+            /** Last Preflight At Utc */
+            last_preflight_at_utc?: string | null;
+            /** Last Preview Sync At Utc */
+            last_preview_sync_at_utc?: string | null;
+            /** Assigned Agent Status */
+            assigned_agent_status?: string | null;
+            /** Last Synced At Utc */
+            last_synced_at_utc?: string | null;
+            /** Job Status */
+            job_status?: string | null;
+            /** Current Stage */
+            current_stage?: string | null;
+            /**
+             * Record Count
+             * @default 0
+             */
+            record_count: number;
+            /**
+             * Inserted Count
+             * @default 0
+             */
+            inserted_count: number;
+            /**
+             * Updated Count
+             * @default 0
+             */
+            updated_count: number;
+            /** Freshness Hours */
+            freshness_hours?: number | null;
+            /**
+             * Status Tone
+             * @default neutral
+             * @enum {string}
+             */
+            status_tone: "good" | "attention" | "critical" | "neutral";
+        };
+        /** ConnectorHealthMetricResponse */
+        ConnectorHealthMetricResponse: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Score */
+            score: number;
+            /** Status */
+            status: string;
+            /** Detail */
+            detail: string;
+        };
+        /** ConnectorHealthStatusResponse */
+        ConnectorHealthStatusResponse: {
+            /** Score */
+            score: number;
+            /**
+             * Band
+             * @enum {string}
+             */
+            band: "green" | "amber" | "red";
+            /** Metrics */
+            metrics?: components["schemas"]["ConnectorHealthMetricResponse"][];
+            /** Operator Message */
+            operator_message: string;
+            /** Support Hint */
+            support_hint: string;
+            /** Recommended Action */
+            recommended_action: string;
+            /** Retryable */
+            retryable: boolean;
+            /** Support Matrix Version */
+            support_matrix_version: string;
+        };
+        /** ConnectorOperationRequest */
+        ConnectorOperationRequest: {
+            /** Tenant Id */
+            tenant_id: string;
+            /** Project Id */
+            project_id: string;
+        };
+        /** ConnectorOperationResponse */
+        ConnectorOperationResponse: {
+            /** Operation Id */
+            operation_id: string;
+            /** Integration Config Id */
+            integration_config_id: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Connector Type */
+            connector_type: string;
+            /**
+             * Operation Type
+             * @enum {string}
+             */
+            operation_type: "discover" | "preflight" | "preview_sync" | "replay" | "support_bundle";
+            /** Status */
+            status: string;
+            /** Current Stage */
+            current_stage: string;
+            /** Replay Mode */
+            replay_mode?: ("resume" | "reset_cursor" | "backfill_window") | null;
+            /** Assigned Agent Id */
+            assigned_agent_id?: string | null;
+            /**
+             * Support Tier
+             * @enum {string}
+             */
+            support_tier: "certified" | "beta" | "unsupported";
+            /**
+             * Health Band
+             * @enum {string}
+             */
+            health_band: "green" | "amber" | "red";
+            /** Operator Message */
+            operator_message?: string | null;
+            /** Support Hint */
+            support_hint?: string | null;
+            /** Recommended Action */
+            recommended_action?: string | null;
+            /** Retryable */
+            retryable: boolean;
+            /** Error Code */
+            error_code?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /** Result */
+            result?: {
+                [key: string]: unknown;
+            };
+            /** Diagnostics */
+            diagnostics?: {
+                [key: string]: unknown;
+            };
+            /** Started At Utc */
+            started_at_utc?: string | null;
+            /** Completed At Utc */
+            completed_at_utc?: string | null;
+            artifact?: components["schemas"]["ConnectorArtifactResponse"] | null;
+        };
+        /** ConnectorPreviewSyncRequest */
+        ConnectorPreviewSyncRequest: {
+            /** Tenant Id */
+            tenant_id: string;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Limit
+             * @default 20
+             */
+            limit: number;
+        };
+        /** ConnectorReplayRequest */
+        ConnectorReplayRequest: {
+            /** Tenant Id */
+            tenant_id: string;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "resume" | "reset_cursor" | "backfill_window";
+            /** Backfill Window Days */
+            backfill_window_days?: number | null;
         };
         /** ConnectorSyncJobResponse */
         ConnectorSyncJobResponse: {
@@ -592,6 +1183,80 @@ export interface components {
             role: "admin" | "compliance_manager" | "analyst" | "board_member" | "committee_secretary" | "auditor_readonly";
             /** Tenant Id */
             tenant_id: string;
+        };
+        /** DashboardHero */
+        DashboardHero: {
+            /** Tenant Name */
+            tenant_name: string;
+            /** Company Name */
+            company_name: string;
+            /** Project Name */
+            project_name: string;
+            /** Project Code */
+            project_code: string;
+            /** Sector */
+            sector?: string | null;
+            /** Headquarters */
+            headquarters?: string | null;
+            /** Reporting Currency */
+            reporting_currency: string;
+            /** Blueprint Version */
+            blueprint_version?: string | null;
+            /** Readiness Label */
+            readiness_label: string;
+            /** Readiness Score */
+            readiness_score: number;
+            /** Summary */
+            summary: string;
+            /** Logo Uri */
+            logo_uri?: string | null;
+            /** Primary Color */
+            primary_color?: string | null;
+            /** Accent Color */
+            accent_color?: string | null;
+        };
+        /** DashboardMetric */
+        DashboardMetric: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Display Value */
+            display_value: string;
+            /** Detail */
+            detail?: string | null;
+            /** Delta Text */
+            delta_text?: string | null;
+            /**
+             * Status
+             * @default neutral
+             * @enum {string}
+             */
+            status: "good" | "attention" | "critical" | "neutral";
+            /** Trend */
+            trend?: components["schemas"]["KpiTrendPoint"][];
+        };
+        /** DashboardOverviewResponse */
+        DashboardOverviewResponse: {
+            hero: components["schemas"]["DashboardHero"];
+            /** Metrics */
+            metrics?: components["schemas"]["DashboardMetric"][];
+            /** Pipeline */
+            pipeline?: components["schemas"]["PipelineLane"][];
+            /** Connector Health */
+            connector_health?: components["schemas"]["ConnectorHealthItem"][];
+            /** Risks */
+            risks?: components["schemas"]["RiskItem"][];
+            /** Schedule */
+            schedule?: components["schemas"]["ScheduleItem"][];
+            /** Artifact Health */
+            artifact_health?: components["schemas"]["ArtifactHealthSummary"][];
+            /** Activity Feed */
+            activity_feed?: components["schemas"]["ActivityItem"][];
+            /** Run Queue */
+            run_queue?: components["schemas"]["RunQueueItem"][];
+            /** Generated At Utc */
+            generated_at_utc: string;
         };
         /** DocumentExtractionEnqueueResponse */
         DocumentExtractionEnqueueResponse: {
@@ -724,6 +1389,24 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** FactoryReadinessBlockerResponse */
+        FactoryReadinessBlockerResponse: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+        };
+        /** FactoryReadinessResponse */
+        FactoryReadinessResponse: {
+            /** Is Ready */
+            is_ready: boolean;
+            /** Company Profile Ready */
+            company_profile_ready: boolean;
+            /** Brand Kit Ready */
+            brand_kit_ready: boolean;
+            /** Blockers */
+            blockers?: components["schemas"]["FactoryReadinessBlockerResponse"][];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -738,12 +1421,9 @@ export interface components {
             /** Connector Type */
             connector_type: string;
             /** Display Name */
-            display_name: string;
-            /**
-             * Auth Mode
-             * @default configured
-             */
-            auth_mode: string;
+            display_name?: string | null;
+            /** Auth Mode */
+            auth_mode?: string | null;
             /** Base Url */
             base_url?: string | null;
             /** Resource Path */
@@ -753,12 +1433,27 @@ export interface components {
              * @default v1
              */
             mapping_version: string;
-            /** Connection Payload */
-            connection_payload?: {
+            /** Certified Variant */
+            certified_variant?: string | null;
+            /** Product Version */
+            product_version?: string | null;
+            /** Connectivity Mode */
+            connectivity_mode?: string | null;
+            /** Credential Ref */
+            credential_ref?: string | null;
+            /** Assigned Agent Id */
+            assigned_agent_id?: string | null;
+            connection_profile?: components["schemas"]["ConnectorConnectionProfileRequest"];
+            /** Normalization Policy */
+            normalization_policy?: {
                 [key: string]: unknown;
             };
             /** Sample Payload */
             sample_payload?: {
+                [key: string]: unknown;
+            };
+            /** Connection Payload */
+            connection_payload?: {
                 [key: string]: unknown;
             };
         };
@@ -784,8 +1479,43 @@ export interface components {
             status: string;
             /** Mapping Version */
             mapping_version: string;
+            /** Certified Variant */
+            certified_variant?: string | null;
+            /** Product Version */
+            product_version?: string | null;
+            /**
+             * Support Tier
+             * @enum {string}
+             */
+            support_tier: "certified" | "beta" | "unsupported";
+            /** Connectivity Mode */
+            connectivity_mode: string;
+            /** Credential Ref */
+            credential_ref?: string | null;
+            /**
+             * Health Band
+             * @enum {string}
+             */
+            health_band: "green" | "amber" | "red";
+            health_status?: components["schemas"]["ConnectorHealthStatusResponse"] | null;
+            /** Assigned Agent Id */
+            assigned_agent_id?: string | null;
+            /** Normalization Policy */
+            normalization_policy?: {
+                [key: string]: unknown;
+            };
+            /** Connection Profile */
+            connection_profile?: {
+                [key: string]: unknown;
+            };
             /** Last Cursor */
             last_cursor?: string | null;
+            /** Last Discovered At Utc */
+            last_discovered_at_utc?: string | null;
+            /** Last Preflight At Utc */
+            last_preflight_at_utc?: string | null;
+            /** Last Preview Sync At Utc */
+            last_preview_sync_at_utc?: string | null;
             /** Last Synced At Utc */
             last_synced_at_utc?: string | null;
         };
@@ -799,8 +1529,24 @@ export interface components {
             display_name: string;
             /** Status */
             status: string;
+            /** Support Tier */
+            support_tier: string;
+            /** Certified Variant */
+            certified_variant?: string | null;
+            /** Product Version */
+            product_version?: string | null;
+            /** Health Band */
+            health_band: string;
+            /** Last Discovered At */
+            last_discovered_at?: string | null;
+            /** Last Preflight At */
+            last_preflight_at?: string | null;
+            /** Last Preview Sync At */
+            last_preview_sync_at?: string | null;
             /** Last Synced At */
             last_synced_at?: string | null;
+            /** Assigned Agent Status */
+            assigned_agent_status?: string | null;
         };
         /** IntegrationSyncRequest */
         IntegrationSyncRequest: {
@@ -818,12 +1564,40 @@ export interface components {
             /** Synced Connector Count */
             synced_connector_count: number;
         };
+        /** KpiTrendPoint */
+        KpiTrendPoint: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: number;
+        };
         /** LivenessResponse */
         LivenessResponse: {
             /** Status */
             status: string;
             /** Service */
             service: string;
+        };
+        /** PipelineLane */
+        PipelineLane: {
+            /** Lane Id */
+            lane_id: string;
+            /** Label */
+            label: string;
+            /** Count */
+            count: number;
+            /** Total */
+            total: number;
+            /** Ratio */
+            ratio: number;
+            /**
+             * Status
+             * @default neutral
+             * @enum {string}
+             */
+            status: "good" | "attention" | "critical" | "neutral";
+            /** Description */
+            description: string;
         };
         /** ProjectCreateRequest */
         ProjectCreateRequest: {
@@ -1028,6 +1802,22 @@ export interface components {
             /** Evidence */
             evidence: components["schemas"]["EvidenceResult"][];
             diagnostics: components["schemas"]["RetrievalDiagnostics"];
+        };
+        /** RiskItem */
+        RiskItem: {
+            /** Risk Id */
+            risk_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "good" | "attention" | "critical" | "neutral";
+            /** Count */
+            count: number;
+            /** Detail */
+            detail: string;
         };
         /** RunAdvanceRequest */
         RunAdvanceRequest: {
@@ -1247,6 +2037,27 @@ export interface components {
             /** Generated At Utc */
             generated_at_utc: string;
         };
+        /** RunQueueItem */
+        RunQueueItem: {
+            /** Run Id */
+            run_id: string;
+            /** Report Run Status */
+            report_run_status: string;
+            /** Active Node */
+            active_node: string;
+            /** Publish Ready */
+            publish_ready: boolean;
+            /** Human Approval */
+            human_approval: string;
+            /** Package Status */
+            package_status: string;
+            /** Report Quality Score */
+            report_quality_score?: number | null;
+            /** Latest Sync At Utc */
+            latest_sync_at_utc?: string | null;
+            /** Visual Generation Status */
+            visual_generation_status: string;
+        };
         /** RunStatusResponse */
         RunStatusResponse: {
             /** Run Id */
@@ -1340,6 +2151,24 @@ export interface components {
             /** Generated At Utc */
             generated_at_utc: string;
         };
+        /** ScheduleItem */
+        ScheduleItem: {
+            /** Item Id */
+            item_id: string;
+            /** Title */
+            title: string;
+            /** Subtitle */
+            subtitle: string;
+            /** Slot Label */
+            slot_label: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "good" | "attention" | "critical" | "neutral";
+            /** Run Id */
+            run_id?: string | null;
+        };
         /** TenantCreateRequest */
         TenantCreateRequest: {
             /** Name */
@@ -1393,6 +2222,14 @@ export interface components {
              * @default TRY
              */
             reporting_currency: string;
+            /** Company Profile */
+            company_profile?: {
+                [key: string]: string;
+            };
+            /** Brand Kit */
+            brand_kit?: {
+                [key: string]: string;
+            };
         };
         /** WorkspaceBootstrapResponse */
         WorkspaceBootstrapResponse: {
@@ -1404,6 +2241,7 @@ export interface components {
             integrations: components["schemas"]["IntegrationConfigSummaryResponse"][];
             /** Blueprint Version */
             blueprint_version: string;
+            factory_readiness: components["schemas"]["FactoryReadinessResponse"];
             /** Tenant Created */
             tenant_created: boolean;
             /** Project Created */
@@ -1419,6 +2257,7 @@ export interface components {
             integrations: components["schemas"]["IntegrationConfigSummaryResponse"][];
             /** Blueprint Version */
             blueprint_version: string;
+            factory_readiness: components["schemas"]["FactoryReadinessResponse"];
         };
     };
     responses: never;
@@ -1787,6 +2626,42 @@ export interface operations {
             };
         };
     };
+    get_dashboard_overview_dashboard_overview_get: {
+        parameters: {
+            query: {
+                tenant_id: string;
+                project_id: string;
+            };
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     upload_document_documents_upload_post: {
         parameters: {
             query?: never;
@@ -2041,6 +2916,467 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntegrationConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_integration_connector_integrations_connectors__integration_id__get: {
+        parameters: {
+            query: {
+                tenant_id: string;
+                project_id: string;
+            };
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_agent_integrations_agents_register_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorAgentRegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorAgentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    heartbeat_agent_integrations_agents__agent_id__heartbeat_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorAgentHeartbeatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorAgentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claim_next_operation_integrations_agents__agent_id__claim_next_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorClaimNextOperationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    execute_claimed_operation_integrations_connectors__integration_id__operations__operation_id__execute_post: {
+        parameters: {
+            query?: {
+                preview_limit?: number;
+                backfill_window_days?: number | null;
+            };
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                integration_id: string;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOperationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discover_connector_integrations_connectors__integration_id__discover_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorOperationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOperationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preflight_connector_integrations_connectors__integration_id__preflight_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorOperationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOperationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_sync_connector_integrations_connectors__integration_id__preview_sync_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorPreviewSyncRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOperationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replay_connector_integrations_connectors__integration_id__replay_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorReplayRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOperationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_support_bundle_integrations_connectors__integration_id__support_bundle_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorOperationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOperationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_connector_operation_integrations_connectors__integration_id__operations__operation_id__get: {
+        parameters: {
+            query: {
+                tenant_id: string;
+                project_id: string;
+            };
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                integration_id: string;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOperationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_connector_artifact_integrations_connectors__integration_id__artifacts__artifact_id__get: {
+        parameters: {
+            query: {
+                tenant_id: string;
+                project_id: string;
+            };
+            header?: {
+                "x-user-id"?: string | null;
+                "x-user-role"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                integration_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

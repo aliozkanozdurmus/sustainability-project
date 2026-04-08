@@ -31,6 +31,7 @@ from app.services.report_context import (
     ensure_project_report_context,
     is_brand_kit_configured,
     is_company_profile_configured,
+    resolve_brand_logo_uri,
 )
 from app.services.integrations import get_assigned_agent_status
 
@@ -81,7 +82,7 @@ def _to_brand_kit_response(brand_kit: BrandKit) -> BrandKitResponse:
         tenant_id=brand_kit.tenant_id,
         project_id=brand_kit.project_id,
         brand_name=brand_kit.brand_name,
-        logo_uri=brand_kit.logo_uri,
+        logo_uri=resolve_brand_logo_uri(brand_kit),
         primary_color=brand_kit.primary_color,
         secondary_color=brand_kit.secondary_color,
         accent_color=brand_kit.accent_color,

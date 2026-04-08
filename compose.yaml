@@ -1,5 +1,14 @@
 name: sustainability-project
 
+x-backend-shared-env: &backend-shared-env
+  APP_ENV: development
+  ALLOW_LOCAL_DEV_DATABASE: "true"
+  AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+  AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+  AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-10-21}
+  AZURE_OPENAI_CHAT_DEPLOYMENT: ${AZURE_OPENAI_CHAT_DEPLOYMENT:-gpt-5.2}
+  AZURE_OPENAI_EMBEDDING_DEPLOYMENT: ${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-text-embedding-3-large}
+
 services:
   postgres:
     image: postgres:16-bookworm
@@ -43,18 +52,40 @@ services:
       - -lc
       - alembic upgrade head && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
     environment:
-      APP_ENV: development
-      ALLOW_LOCAL_DEV_DATABASE: "true"
+      <<: *backend-shared-env
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/sustainability
       REDIS_URL: redis://redis:6379/0
-      CORS_ALLOW_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
-      AZURE_STORAGE_USE_LOCAL: "true"
-      LOCAL_BLOB_ROOT: apps/api/storage
-      AZURE_AI_SEARCH_USE_LOCAL: "true"
-      LOCAL_SEARCH_INDEX_ROOT: apps/api/storage/search-index
-      LOCAL_CHECKPOINT_ROOT: apps/api/storage/checkpoints
-      AZURE_OPENAI_CHAT_DEPLOYMENT: gpt-5.2
-      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: text-embedding-3-large
+      API_PREFIX: ${API_PREFIX:-}
+      API_VERSION: ${API_VERSION:-v1}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      ARQ_QUEUE_NAME: ${ARQ_QUEUE_NAME:-arq:queue}
+      AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
+      AZURE_STORAGE_CONTAINER_RAW: ${AZURE_STORAGE_CONTAINER_RAW:-raw-documents}
+      AZURE_STORAGE_CONTAINER_PARSED: ${AZURE_STORAGE_CONTAINER_PARSED:-parsed-documents}
+      AZURE_STORAGE_CONTAINER_ARTIFACTS: ${AZURE_STORAGE_CONTAINER_ARTIFACTS:-report-artifacts}
+      AZURE_STORAGE_USE_LOCAL: ${AZURE_STORAGE_USE_LOCAL:-true}
+      LOCAL_BLOB_ROOT: ${LOCAL_BLOB_ROOT:-apps/api/storage}
+      AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT: ${AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT:-}
+      AZURE_DOCUMENT_INTELLIGENCE_API_KEY: ${AZURE_DOCUMENT_INTELLIGENCE_API_KEY:-}
+      AZURE_DOCUMENT_INTELLIGENCE_API_VERSION: ${AZURE_DOCUMENT_INTELLIGENCE_API_VERSION:-2024-11-30}
+      AZURE_AI_SEARCH_ENDPOINT: ${AZURE_AI_SEARCH_ENDPOINT:-}
+      AZURE_AI_SEARCH_API_KEY: ${AZURE_AI_SEARCH_API_KEY:-}
+      AZURE_AI_SEARCH_INDEX_NAME: ${AZURE_AI_SEARCH_INDEX_NAME:-esg-evidence-index}
+      AZURE_AI_SEARCH_USE_LOCAL: ${AZURE_AI_SEARCH_USE_LOCAL:-true}
+      LOCAL_SEARCH_INDEX_ROOT: ${LOCAL_SEARCH_INDEX_ROOT:-apps/api/storage/search-index}
+      LOCAL_CHECKPOINT_ROOT: ${LOCAL_CHECKPOINT_ROOT:-apps/api/storage/checkpoints}
+      WORKFLOW_RETRY_MAX_PER_NODE: ${WORKFLOW_RETRY_MAX_PER_NODE:-2}
+      WORKFLOW_RETRY_BASE_SECONDS: ${WORKFLOW_RETRY_BASE_SECONDS:-2}
+      WORKFLOW_RETRY_MAX_DEFER_SECONDS: ${WORKFLOW_RETRY_MAX_DEFER_SECONDS:-30}
+      WORKFLOW_EXECUTE_MAX_STEPS: ${WORKFLOW_EXECUTE_MAX_STEPS:-64}
+      AZURE_OPENAI_IMAGE_DEPLOYMENT: ${AZURE_OPENAI_IMAGE_DEPLOYMENT:-}
+      AZURE_OPENAI_IMAGE_FALLBACK_DEPLOYMENT: ${AZURE_OPENAI_IMAGE_FALLBACK_DEPLOYMENT:-}
+      VERIFIER_MODE: ${VERIFIER_MODE:-heuristic}
+      VERIFIER_PASS_THRESHOLD: ${VERIFIER_PASS_THRESHOLD:-0.55}
+      VERIFIER_UNSURE_THRESHOLD: ${VERIFIER_UNSURE_THRESHOLD:-0.3}
+      REPORT_FACTORY_DEFAULT_BLUEPRINT_VERSION: ${REPORT_FACTORY_DEFAULT_BLUEPRINT_VERSION:-brandable-tr-v1}
+      REPORT_FACTORY_DEFAULT_LOCALE: ${REPORT_FACTORY_DEFAULT_LOCALE:-tr-TR}
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,13 +114,20 @@ services:
     working_dir: /workspace/services/worker
     command: ["python", "-m", "arq", "worker.app.WorkerSettings"]
     environment:
-      APP_ENV: development
-      ALLOW_LOCAL_DEV_DATABASE: "true"
+      <<: *backend-shared-env
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/sustainability
       REDIS_URL: redis://redis:6379/0
-      QUEUE_NAME: arq:queue
-      AZURE_OPENAI_CHAT_DEPLOYMENT: gpt-5.2
-      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: text-embedding-3-large
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+      QUEUE_NAME: ${QUEUE_NAME:-arq:queue}
+      OCR_JOB_MAX_RETRIES: ${OCR_JOB_MAX_RETRIES:-3}
+      OCR_RETRY_BASE_SECONDS: ${OCR_RETRY_BASE_SECONDS:-2}
+      OCR_RETRY_MAX_DEFER_SECONDS: ${OCR_RETRY_MAX_DEFER_SECONDS:-30}
+      INDEX_JOB_MAX_RETRIES: ${INDEX_JOB_MAX_RETRIES:-3}
+      INDEX_RETRY_BASE_SECONDS: ${INDEX_RETRY_BASE_SECONDS:-2}
+      INDEX_RETRY_MAX_DEFER_SECONDS: ${INDEX_RETRY_MAX_DEFER_SECONDS:-30}
+      PACKAGE_JOB_MAX_RETRIES: ${PACKAGE_JOB_MAX_RETRIES:-2}
+      PACKAGE_RETRY_BASE_SECONDS: ${PACKAGE_RETRY_BASE_SECONDS:-5}
+      PACKAGE_RETRY_MAX_DEFER_SECONDS: ${PACKAGE_RETRY_MAX_DEFER_SECONDS:-60}
     depends_on:
       postgres:
         condition: service_healthy
@@ -119,7 +157,9 @@ services:
     command: ["pnpm", "--filter", "web", "dev", "--hostname", "0.0.0.0", "--port", "3000"]
     environment:
       NODE_ENV: development
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_PUBLIC_DEFAULT_TENANT_ID: ${NEXT_PUBLIC_DEFAULT_TENANT_ID:-}
+      NEXT_PUBLIC_DEFAULT_PROJECT_ID: ${NEXT_PUBLIC_DEFAULT_PROJECT_ID:-}
     depends_on:
       api:
         condition: service_healthy

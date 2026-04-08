@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.models.core import Project, Tenant
 
 
 def test_bootstrap_workspace_returns_ready_factory_context_when_profile_and_brand_are_supplied(
@@ -72,6 +73,57 @@ def test_bootstrap_workspace_returns_ready_factory_context_when_profile_and_bran
         assert body["brand_kit"]["is_configured"] is True
         assert body["brand_kit"]["logo_uri"].startswith("data:image/svg+xml")
         assert len(body["integrations"]) == 3
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_workspace_context_surfaces_default_brand_logo_without_missing_logo_blocker(
+    tmp_path: Path,
+) -> None:
+    db_file = tmp_path / "test_catalog_workspace_context.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+
+    try:
+        with TestingSessionLocal() as session:
+            tenant = Tenant(name="Default Brand Tenant", slug="default-brand-tenant", status="active")
+            session.add(tenant)
+            session.flush()
+            project = Project(
+                tenant_id=tenant.id,
+                name="Default Brand Project",
+                code="DBP",
+                reporting_currency="TRY",
+                status="active",
+            )
+            session.add(project)
+            session.commit()
+            tenant_id = tenant.id
+            project_id = project.id
+
+        response = client.get(
+            f"/catalog/workspace-context?tenant_id={tenant_id}&project_id={project_id}",
+            headers={"x-user-role": "analyst"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        blocker_codes = {item["code"] for item in body["factory_readiness"]["blockers"]}
+        assert body["brand_kit"]["logo_uri"] == "/brand/veni-logo-orbit-leaf.png"
+        assert body["factory_readiness"]["brand_kit_ready"] is False
+        assert "BRAND_KIT_NOT_CONFIRMED" in blocker_codes
+        assert "BRAND_KIT_FIELD_MISSING" not in blocker_codes
     finally:
         app.dependency_overrides.clear()
         engine.dispose()

@@ -1,12 +1,20 @@
-# Veni AI Sustainability Cockpit
+<p align="center">
+  <img src="./apps/web/public/brand/veni-logo-orbit-leaf.png" alt="Veni AI orbit leaf logo" width="180" />
+</p>
 
-ERP-to-package report factory for controlled, evidence-grounded sustainability reporting.
+<h1 align="center">Veni AI Sustainability Cockpit</h1>
 
-[![CI](https://img.shields.io/github/actions/workflow/status/aliozkanozdurmus/sustainability-project/ci.yml?branch=main&label=ci)](https://github.com/aliozkanozdurmus/sustainability-project/actions/workflows/ci.yml)
-![Monorepo](https://img.shields.io/badge/monorepo-Turborepo-111827)
-![Connectors](https://img.shields.io/badge/connectors-3%20ERP%20inputs-374151)
-![Package Pipeline](https://img.shields.io/badge/package%20pipeline-9%20stages-0f766e)
-![Tracked Artifacts](https://img.shields.io/badge/artifacts-6%20tracked-1d4ed8)
+<p align="center">ERP-to-package report factory for controlled, evidence-grounded sustainability reporting.</p>
+
+<p align="center">
+  <a href="https://github.com/aliozkanozdurmus/sustainability-project/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/aliozkanozdurmus/sustainability-project/ci.yml?branch=main&label=ci" alt="CI" />
+  </a>
+  <img src="https://img.shields.io/badge/monorepo-Turborepo-111827" alt="Monorepo" />
+  <img src="https://img.shields.io/badge/connectors-3%20ERP%20inputs-374151" alt="Connectors" />
+  <img src="https://img.shields.io/badge/package%20pipeline-9%20stages-0f766e" alt="Package Pipeline" />
+  <img src="https://img.shields.io/badge/artifacts-6%20tracked-1d4ed8" alt="Tracked Artifacts" />
+</p>
 
 This repository shows the current product state: connector provisioning, canonical fact sync, report generation, review, package tracking, controlled publish, and final artifact download.
 
@@ -215,6 +223,9 @@ Package status payload highlights:
 - `artifacts[]`
 
 ## Quick Start
+
+Create the single local runtime file at the repository root by copying `/.env.example` to `/.env`.
+The root `/.env` is the only file-based env source for local API, worker, Next.js, and Playwright runs.
 
 Start the full local stack with Docker:
 

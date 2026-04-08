@@ -2,7 +2,7 @@
 
 // Bu sayfa, approval-center ekraninin ana deneyimini kurar.
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import {
@@ -16,104 +16,29 @@ import {
   Send,
   Users,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import {
-  buildApiHeaders,
-  buildRunArtifactPath,
-  buildRunPackageStatusPath,
-  buildRunReportPdfPath,
-  getResponseErrorMessage,
-  getApiBaseUrl,
-  parseJsonOrThrow,
   persistWorkspaceContext,
   type WorkspaceContext,
 } from "@/lib/api/client";
+import { queryKeys } from "@/lib/api/query-keys";
+import {
+  downloadRunArtifact,
+  fetchRunPackageStatus,
+  fetchRunTriage,
+  parseApprovalCenterSearchParams,
+  type ReportArtifact,
+  type RunPackageStatus,
+  type TriageResponse,
+  useExecuteRunMutation,
+  usePublishRunMutation,
+  useRunPackageStatusQuery,
+  useRunsQuery,
+} from "@/lib/api/runs";
 import { useWorkspaceContext } from "@/lib/api/workspace-store";
-
-type ReportArtifact = {
-  artifact_id: string;
-  artifact_type: string;
-  filename: string;
-  content_type: string;
-  size_bytes: number;
-  checksum: string;
-  created_at_utc: string;
-  download_path: string;
-  metadata?: Record<string, unknown>;
-};
-
-type RunListItem = {
-  run_id: string;
-  report_run_status: string;
-  publish_ready: boolean;
-  started_at_utc: string | null;
-  completed_at_utc: string | null;
-  active_node: string;
-  human_approval: string;
-  triage_required: boolean;
-  last_checkpoint_status: string;
-  last_checkpoint_at_utc: string | null;
-  package_status: string;
-  report_quality_score: number | null;
-  latest_sync_at_utc: string | null;
-  visual_generation_status: string;
-  report_pdf: ReportArtifact | null;
-};
-
-type RunListResponse = {
-  total: number;
-  page: number;
-  size: number;
-  items: RunListItem[];
-};
-
-type TriageItem = {
-  section_code: string;
-  claim_id: string;
-  status: "FAIL" | "UNSURE";
-  severity: string;
-  reason: string;
-  confidence?: number;
-  evidence_refs: string[];
-};
-
-type TriageResponse = {
-  run_id: string;
-  fail_count: number;
-  unsure_count: number;
-  critical_fail_count: number;
-  total_items: number;
-  items: TriageItem[];
-};
-
-type RunPublishResponse = {
-  published: boolean;
-  report_run_status: string;
-  package_job_id: string | null;
-  package_status: string;
-  estimated_stage: string | null;
-  artifacts: ReportArtifact[];
-  report_pdf: ReportArtifact | null;
-};
-
-type RunPackageStatus = {
-  run_id: string;
-  package_job_id: string | null;
-  package_status: string;
-  current_stage: string | null;
-  report_quality_score: number | null;
-  visual_generation_status: string;
-  artifacts: ReportArtifact[];
-  stage_history: Array<{
-    stage: string;
-    status: string;
-    at_utc: string;
-    detail?: string | null;
-  }>;
-  generated_at_utc: string;
-};
 
 function formatUiErrorMessage(rawMessage: string): string {
   const trimmed = rawMessage.trim();
@@ -206,17 +131,41 @@ function ApprovalCenterFallback() {
 function ApprovalCenterPageContent() {
   const params = useSearchParams();
   const workspace = useWorkspaceFromQueryAndStorage();
-  const created = params.get("created") === "1";
-  const mode = params.get("mode");
-  const createdRunId = params.get("runId");
+  const queryClient = useQueryClient();
+  const searchParamString = params.toString();
+  const { created, mode, runId: createdRunId } = useMemo(
+    () => parseApprovalCenterSearchParams(new URLSearchParams(searchParamString)),
+    [searchParamString],
+  );
 
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [runs, setRuns] = useState<RunListItem[]>([]);
-  const [runsBusy, setRunsBusy] = useState(false);
   const [triage, setTriage] = useState<TriageResponse | null>(null);
-  const [packageState, setPackageState] = useState<RunPackageStatus | null>(null);
+  const [selectedPackageRunId, setSelectedPackageRunId] = useState<string | null>(null);
+
+  const runsQuery = useRunsQuery(workspace, {
+    page: 1,
+    size: 50,
+    pollWhilePending: true,
+  });
+  const packageStatusQuery = useRunPackageStatusQuery(workspace, selectedPackageRunId, {
+    enabled: Boolean(selectedPackageRunId),
+    pollWhilePending: true,
+  });
+  const executeRunMutation = useExecuteRunMutation(workspace);
+  const publishRunMutation = usePublishRunMutation(workspace);
+
+  const runs = runsQuery.data?.items ?? [];
+  const runsBusy = runsQuery.isPending || runsQuery.isFetching;
+  const packageState = packageStatusQuery.data ?? null;
+  const pageError =
+    error ??
+    (runsQuery.isError
+      ? toUiErrorMessage(runsQuery.error, "Failed to load runs.")
+      : packageStatusQuery.isError
+        ? toUiErrorMessage(packageStatusQuery.error, "Package status could not be loaded.")
+        : null);
 
   const runStats = useMemo(() => {
     const pending = runs.filter((row) => row.report_run_status !== "published").length;
@@ -229,84 +178,26 @@ function ApprovalCenterPageContent() {
     };
   }, [runs]);
 
-  const loadRuns = useCallback(async (options?: { silent?: boolean }) => {
-    if (!workspace) return;
-    if (!options?.silent) {
-      setRunsBusy(true);
-      setError(null);
-    }
-    try {
-      const apiBase = getApiBaseUrl();
-      const response = await fetch(
-        `${apiBase}/runs?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}&page=1&size=50`,
-        {
-          headers: buildApiHeaders(workspace.tenantId),
-        },
-      );
-      const payload = await parseJsonOrThrow<RunListResponse>(response);
-      setRuns(payload.items);
-    } catch (err) {
-      if (!options?.silent) {
-        setError(toUiErrorMessage(err, "Failed to load runs."));
-      }
-    } finally {
-      if (!options?.silent) {
-        setRunsBusy(false);
-      }
-    }
-  }, [workspace]);
-
   useEffect(() => {
-    void loadRuns();
-  }, [loadRuns]);
-
-  useEffect(() => {
-    if (!workspace) {
-      return;
-    }
-    const shouldPollRuns = runs.some((row) => ["queued", "running"].includes(row.package_status));
-    const shouldPollPackageState =
-      packageState !== null && ["queued", "running"].includes(packageState.package_status);
-    if (!shouldPollRuns && !shouldPollPackageState) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      void loadRuns({ silent: true });
-      if (!shouldPollPackageState) {
-        return;
-      }
-      const apiBase = getApiBaseUrl();
-      void fetch(`${apiBase}${buildRunPackageStatusPath(workspace, packageState.run_id)}`, {
-        headers: buildApiHeaders(workspace.tenantId),
-      })
-        .then((response) => parseJsonOrThrow<RunPackageStatus>(response))
-        .then((payload) => {
-          setPackageState(payload);
-        })
-        .catch(() => undefined);
-    }, 2000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [loadRuns, packageState, runs, workspace]);
+    setBusyRunId(null);
+    setError(null);
+    setNotice(null);
+    setTriage(null);
+    setSelectedPackageRunId(null);
+  }, [workspace?.tenantId, workspace?.projectId]);
 
   async function handleLoadPackageStatus(runId: string) {
     if (!workspace) return;
     setBusyRunId(runId);
     setError(null);
     try {
-      const apiBase = getApiBaseUrl();
-      const response = await fetch(
-        `${apiBase}${buildRunPackageStatusPath(workspace, runId)}`,
-        {
-          headers: buildApiHeaders(workspace.tenantId),
-        },
-      );
-      const payload = await parseJsonOrThrow<RunPackageStatus>(response);
-      setPackageState(payload);
+      setSelectedPackageRunId(runId);
+      const payload = await queryClient.fetchQuery({
+        queryKey: queryKeys.runs.packageStatus(workspace, runId),
+        queryFn: ({ signal }) => fetchRunPackageStatus(workspace, runId, signal),
+      });
       setNotice(`Package status refreshed: ${payload.package_status}.`);
+      await runsQuery.refetch();
     } catch (err) {
       setError(toUiErrorMessage(err, "Package status could not be loaded."));
     } finally {
@@ -320,19 +211,12 @@ function ApprovalCenterPageContent() {
     setError(null);
     setNotice(null);
     try {
-      const apiBase = getApiBaseUrl();
-      const response = await fetch(`${apiBase}/runs/${runId}/execute`, {
-        method: "POST",
-        headers: buildApiHeaders(workspace.tenantId),
-        body: JSON.stringify({
-          tenant_id: workspace.tenantId,
-          project_id: workspace.projectId,
-          max_steps: 32,
-        }),
+      await executeRunMutation.mutateAsync({
+        runId,
+        maxSteps: 32,
       });
-      await parseJsonOrThrow(response);
       setNotice(`Run ${runId} executed.`);
-      await loadRuns();
+      await runsQuery.refetch();
     } catch (err) {
       setError(toUiErrorMessage(err, "Execute failed."));
     } finally {
@@ -346,24 +230,17 @@ function ApprovalCenterPageContent() {
     setError(null);
     setNotice(null);
     try {
-      const apiBase = getApiBaseUrl();
-      const response = await fetch(`${apiBase}/runs/${runId}/execute`, {
-        method: "POST",
-        headers: buildApiHeaders(workspace.tenantId),
-        body: JSON.stringify({
-          tenant_id: workspace.tenantId,
-          project_id: workspace.projectId,
-          max_steps: 32,
-          human_approval_override: decision,
-        }),
+      await executeRunMutation.mutateAsync({
+        runId,
+        maxSteps: 32,
+        humanApprovalOverride: decision,
       });
-      await parseJsonOrThrow(response);
       setNotice(
         decision === "approved"
           ? `Run ${runId} approved and continued.`
           : `Run ${runId} rejected.`,
       );
-      await loadRuns();
+      await runsQuery.refetch();
     } catch (err) {
       setError(toUiErrorMessage(err, "Approval update failed."));
     } finally {
@@ -377,22 +254,13 @@ function ApprovalCenterPageContent() {
     setError(null);
     setNotice(null);
     try {
-      const apiBase = getApiBaseUrl();
-      const response = await fetch(`${apiBase}/runs/${runId}/publish`, {
-        method: "POST",
-        headers: buildApiHeaders(workspace.tenantId, { role: "board_member" }),
-        body: JSON.stringify({
-          tenant_id: workspace.tenantId,
-          project_id: workspace.projectId,
-        }),
-      });
-      const payload = await parseJsonOrThrow<RunPublishResponse>(response);
+      const payload = await publishRunMutation.mutateAsync({ runId });
       setNotice(
         payload.published
           ? `Run ${runId} is now published. The package is complete and the PDF is ready to download.`
           : `Run ${runId} entered the controlled publish queue. Stage: ${payload.estimated_stage ?? payload.package_status}.`,
       );
-      setPackageState({
+      const nextPackageState: RunPackageStatus = {
         run_id: runId,
         package_job_id: payload.package_job_id,
         package_status: payload.package_status,
@@ -402,8 +270,14 @@ function ApprovalCenterPageContent() {
         artifacts: payload.artifacts,
         stage_history: [],
         generated_at_utc: new Date().toISOString(),
-      });
-      await loadRuns();
+      };
+
+      queryClient.setQueryData(
+        queryKeys.runs.packageStatus(workspace, runId),
+        nextPackageState,
+      );
+      setSelectedPackageRunId(runId);
+      await runsQuery.refetch();
     } catch (err) {
       setError(toUiErrorMessage(err, "Publish failed."));
     } finally {
@@ -421,35 +295,13 @@ function ApprovalCenterPageContent() {
     setError(null);
     setNotice(null);
     try {
-      const apiBase = getApiBaseUrl();
-      const path =
-        artifact?.download_path ??
-        (artifact
-          ? buildRunArtifactPath(workspace, runId, artifact.artifact_id)
-          : buildRunReportPdfPath(workspace, runId));
-      const response = await fetch(`${apiBase}${path}`, {
-        headers: buildApiHeaders(workspace.tenantId, {
-          includeJsonContentType: false,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(await getResponseErrorMessage(response));
-      }
-
-      const blob = await response.blob();
-      if (blob.size <= 0) {
-        throw new Error("Downloaded PDF is empty.");
-      }
-
-      const objectUrl = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = artifact?.filename ?? fallbackFilename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
-      setNotice(`Download started: ${anchor.download}`);
+      const filename = await downloadRunArtifact(
+        workspace,
+        runId,
+        artifact,
+        fallbackFilename,
+      );
+      setNotice(`Download started: ${filename}`);
     } catch (err) {
       setError(toUiErrorMessage(err, "Artifact download failed."));
     } finally {
@@ -462,14 +314,10 @@ function ApprovalCenterPageContent() {
     setBusyRunId(runId);
     setError(null);
     try {
-      const apiBase = getApiBaseUrl();
-      const response = await fetch(
-        `${apiBase}/runs/${runId}/triage-report?tenant_id=${encodeURIComponent(workspace.tenantId)}&project_id=${encodeURIComponent(workspace.projectId)}&page=1&size=20`,
-        {
-          headers: buildApiHeaders(workspace.tenantId),
-        },
-      );
-      const payload = await parseJsonOrThrow<TriageResponse>(response);
+      const payload = await queryClient.fetchQuery({
+        queryKey: queryKeys.runs.triage(workspace, runId),
+        queryFn: ({ signal }) => fetchRunTriage(workspace, runId, signal),
+      });
       setTriage(payload);
     } catch (err) {
       setError(toUiErrorMessage(err, "Triage fetch failed."));
@@ -502,12 +350,12 @@ function ApprovalCenterPageContent() {
         </div>
       )}
 
-      {error ? (
+      {pageError ? (
         <div
           className="mb-4 whitespace-pre-wrap rounded-xl border border-destructive/35 bg-destructive/10 px-4 py-3 text-sm text-destructive"
           data-testid="approval-center-error"
         >
-          {error}
+          {pageError}
         </div>
       ) : null}
 
@@ -573,7 +421,12 @@ function ApprovalCenterPageContent() {
       <article className="mt-4 rounded-[1.75rem] border border-[color:var(--border)] bg-white/72 p-5 shadow-[var(--shadow-soft)]">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Run Queue</h2>
-          <Button type="button" variant="outline" onClick={() => void loadRuns()} disabled={runsBusy || !workspace}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void runsQuery.refetch()}
+            disabled={runsBusy || !workspace}
+          >
             {runsBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Refresh
           </Button>

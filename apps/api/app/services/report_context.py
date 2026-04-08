@@ -154,6 +154,8 @@ REQUIRED_BRAND_KIT_FIELDS = (
     ("tone_name", "Yönetici mesajı tonu"),
 )
 
+DEFAULT_BRAND_LOGO_URI = "/brand/veni-logo-orbit-leaf.png"
+
 
 def _default_company_profile(*, tenant: Tenant, project: Project) -> CompanyProfile:
     return CompanyProfile(
@@ -197,6 +199,13 @@ def _default_brand_kit(*, tenant: Tenant, project: Project) -> BrandKit:
             "auto_provisioned": True,
         },
     )
+
+
+def resolve_brand_logo_uri(brand_kit: BrandKit | None) -> str:
+    if brand_kit is None:
+        return DEFAULT_BRAND_LOGO_URI
+    logo_uri = _clean_optional_text(brand_kit.logo_uri)
+    return logo_uri or DEFAULT_BRAND_LOGO_URI
 
 
 def _default_blueprint(*, tenant: Tenant, project: Project) -> ReportBlueprint:
@@ -296,7 +305,12 @@ def _brand_blockers(brand_kit: BrandKit) -> list[dict[str, str]]:
             }
         )
     for field_name, label in REQUIRED_BRAND_KIT_FIELDS:
-        if _clean_optional_text(getattr(brand_kit, field_name, None)) is None:
+        current_value = (
+            resolve_brand_logo_uri(brand_kit)
+            if field_name == "logo_uri"
+            else getattr(brand_kit, field_name, None)
+        )
+        if _clean_optional_text(current_value) is None:
             blockers.append(
                 {
                     "code": "BRAND_KIT_FIELD_MISSING",
