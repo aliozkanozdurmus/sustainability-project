@@ -205,13 +205,22 @@ def test_alembic_verification_results_run_context_migration(tmp_path: Path) -> N
         engine = sa.create_engine(database_url)
         _seed_pre_migration_verification_row(engine)
 
-        command.upgrade(config, "20260305_0004")
+        command.upgrade(config, "20260426_0007")
 
         inspector = sa.inspect(engine)
         column_map = {column["name"]: column for column in inspector.get_columns("verification_results")}
         assert column_map["report_run_id"]["nullable"] is False
         assert column_map["run_execution_id"]["nullable"] is False
         assert column_map["run_attempt"]["nullable"] is False
+        assert "reason_code" in column_map
+        assert "policy_version" in column_map
+        assert column_map["blocking"]["nullable"] is False
+        assert "citation_span_refs_json" in column_map
+
+        calculation_columns = {
+            column["name"] for column in inspector.get_columns("calculation_runs")
+        }
+        assert "normalization_policy_ref" in calculation_columns
 
         index_names = {index["name"] for index in inspector.get_indexes("verification_results")}
         assert "ix_verification_results_report_run_id" in index_names
@@ -239,6 +248,10 @@ def test_alembic_verification_results_run_context_migration(tmp_path: Path) -> N
             assert migrated_row.report_run_id == "run_1"
             assert migrated_row.run_execution_id == "legacy_ver_1"
             assert migrated_row.run_attempt == 1
+            assert migrated_row.reason_code is None
+            assert migrated_row.policy_version is None
+            assert migrated_row.blocking is False
+            assert migrated_row.citation_span_refs_json is None
 
             duplicate = VerificationResult(
                 id="ver_2",

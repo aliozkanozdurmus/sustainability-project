@@ -13,6 +13,7 @@ from app.core.settings import settings
 
 
 VerifierStatus = Literal["PASS", "FAIL", "UNSURE"]
+VERIFIER_POLICY_VERSION = "verifier-policy-v1"
 
 
 @dataclass
@@ -31,7 +32,11 @@ class VerifierDecision:
     severity: Literal["normal", "critical"]
     confidence: float
     reason: str
+    reason_code: str
+    policy_version: str
+    blocking: bool
     evidence_refs: list[str]
+    citation_span_refs: list[dict[str, Any]]
 
 
 def _tokenize(text: str) -> set[str]:
@@ -46,6 +51,58 @@ def _overlap_score(statement: str, evidence_text: str) -> float:
     lexical = len(statement_tokens.intersection(evidence_tokens)) / len(statement_tokens)
     semanticish = SequenceMatcher(None, statement.lower(), evidence_text.lower()).ratio()
     return round((0.7 * lexical) + (0.3 * semanticish), 6)
+
+
+def _extract_numbers(text: str) -> list[str]:
+    return re.findall(r"-?\d+(?:\.\d+)?", text)
+
+
+def _citations_have_valid_spans(citations: list[dict[str, Any]]) -> bool:
+    if not citations:
+        return False
+    for citation in citations:
+        span_start = citation.get("span_start")
+        span_end = citation.get("span_end")
+        if not isinstance(span_start, (int, float)) or not isinstance(span_end, (int, float)):
+            return False
+        if int(span_end) <= int(span_start):
+            return False
+    return True
+
+
+def _claim_numbers_supported(statement: str, evidence_texts: list[str]) -> bool:
+    claim_numbers = _extract_numbers(statement)
+    if not claim_numbers:
+        return True
+    evidence_number_pool = {number for text in evidence_texts for number in _extract_numbers(text)}
+    return all(number in evidence_number_pool for number in claim_numbers)
+
+
+def _unique_reasons(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def _legacy_reason_text(reason_code: str) -> str:
+    mapping = {
+        "MISSING_CITATIONS": "missing_citations",
+        "INVALID_CITATION_REFERENCE": "invalid_citation_reference",
+        "CITATION_NOT_FOUND_IN_EVIDENCE_POOL": "citation_not_found_in_evidence_pool",
+        "MISSING_CITATION_SPAN": "missing_citation_span",
+        "MISSING_CALCULATION_ARTIFACT": "missing_calculation_artifact_for_numeric_claim",
+        "INVALID_CALCULATION_REFERENCE": "invalid_calculation_reference",
+        "NUMERIC_CONFLICT": "numeric_claim_not_supported_by_evidence",
+        "CLAIM_SUPPORTED": "entailment_threshold_passed",
+        "SUPPORT_AMBIGUOUS": "entailment_ambiguous_requires_human_review",
+        "ENTAILMENT_BELOW_THRESHOLD": "entailment_below_threshold",
+    }
+    return mapping.get(reason_code, reason_code.lower())
 
 
 def _should_use_azure_openai() -> bool:
@@ -142,31 +199,43 @@ def verify_claims(
         reasons: list[str] = []
         evidence_refs: list[str] = []
         evidence_texts: list[str] = []
+        citation_span_refs: list[dict[str, Any]] = []
 
         if not claim.citations:
-            reasons.append("missing_citations")
+            reasons.append("MISSING_CITATIONS")
         else:
             for citation in claim.citations:
                 source_document_id = str(citation.get("source_document_id", "")).strip()
                 chunk_id = str(citation.get("chunk_id", "")).strip()
                 if not source_document_id or not chunk_id:
-                    reasons.append("invalid_citation_reference")
+                    reasons.append("INVALID_CITATION_REFERENCE")
                     continue
                 key = (source_document_id, chunk_id)
                 evidence_text = evidence_map.get(key)
                 if not evidence_text:
-                    reasons.append("citation_not_found_in_evidence_pool")
+                    reasons.append("CITATION_NOT_FOUND_IN_EVIDENCE_POOL")
                     continue
                 evidence_refs.append(f"{source_document_id}:{chunk_id}")
                 evidence_texts.append(evidence_text)
+                citation_span_refs.append(
+                    {
+                        "source_document_id": source_document_id,
+                        "chunk_id": chunk_id,
+                        "span_start": int(citation.get("span_start", 0) or 0),
+                        "span_end": int(citation.get("span_end", 0) or 0),
+                    }
+                )
+
+        if claim.citations and not _citations_have_valid_spans(claim.citations):
+            reasons.append("MISSING_CITATION_SPAN")
 
         if claim.is_numeric:
             if not claim.calculation_refs:
-                reasons.append("missing_calculation_artifact_for_numeric_claim")
+                reasons.append("MISSING_CALCULATION_ARTIFACT")
             else:
                 for ref in claim.calculation_refs:
                     if ref not in calculation_ids:
-                        reasons.append("invalid_calculation_reference")
+                        reasons.append("INVALID_CALCULATION_REFERENCE")
                         break
 
         max_overlap = 0.0
@@ -177,22 +246,30 @@ def verify_claims(
         if azure_score > 0:
             max_overlap = max(max_overlap, azure_score)
 
+        if claim.is_numeric and evidence_texts and not _claim_numbers_supported(claim.statement, evidence_texts):
+            reasons.append("NUMERIC_CONFLICT")
+
+        normalized_reasons = _unique_reasons(reasons)
         if reasons:
             status: VerifierStatus = "FAIL"
             severity: Literal["normal", "critical"] = "critical"
-            reason = "; ".join(sorted(set(reasons)))
+            reason_code = normalized_reasons[0]
+            reason = "; ".join(_legacy_reason_text(item) for item in normalized_reasons)
         elif max_overlap >= effective_pass_threshold:
             status = "PASS"
             severity = "normal"
-            reason = "entailment_threshold_passed"
+            reason_code = "CLAIM_SUPPORTED"
+            reason = _legacy_reason_text(reason_code)
         elif max_overlap >= effective_unsure_threshold:
             status = "UNSURE"
             severity = "normal"
-            reason = "entailment_ambiguous_requires_human_review"
+            reason_code = "SUPPORT_AMBIGUOUS"
+            reason = _legacy_reason_text(reason_code)
         else:
             status = "FAIL"
             severity = "critical"
-            reason = "entailment_below_threshold"
+            reason_code = "ENTAILMENT_BELOW_THRESHOLD"
+            reason = _legacy_reason_text(reason_code)
 
         decisions.append(
             VerifierDecision(
@@ -201,7 +278,11 @@ def verify_claims(
                 severity=severity,
                 confidence=round(max_overlap, 6),
                 reason=reason,
+                reason_code=reason_code,
+                policy_version=VERIFIER_POLICY_VERSION,
+                blocking=status != "PASS",
                 evidence_refs=evidence_refs,
+                citation_span_refs=citation_span_refs,
             )
         )
 

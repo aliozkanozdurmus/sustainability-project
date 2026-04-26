@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Bell, Loader2 } from "lucide-react";
 
 import type { DashboardNotificationItem } from "@/lib/api/dashboard";
@@ -28,7 +29,7 @@ function formatNotificationTime(value: string | null | undefined): string {
     return "Pending";
   }
 
-  return new Date(value).toLocaleString("en-GB", {
+  return new Date(value).toLocaleString("tr-TR", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -113,11 +114,22 @@ export function NotificationCenterPanel({
                     <span className="text-[10px] font-semibold tracking-[0.12em] text-[color:var(--foreground-muted)] uppercase">
                       {CATEGORY_LABELS[item.category]}
                     </span>
+                    <span className="rounded-full bg-[color:var(--surface)] px-2 py-0.5 text-[10px] font-medium text-[color:var(--foreground-soft)]">
+                      {item.priority}
+                    </span>
                   </div>
                   <p className="text-foreground mt-2 text-[13px] font-semibold">{item.title}</p>
                   <p className="mt-1 text-[12px] leading-5 text-[color:var(--foreground-soft)]">
                     {item.detail}
                   </p>
+                  {item.action_path ? (
+                    <Link
+                      href={item.action_path}
+                      className="mt-2 inline-flex text-[11px] font-semibold text-[color:var(--accent-strong)]"
+                    >
+                      Open action surface
+                    </Link>
+                  ) : null}
                 </div>
                 <span className="shrink-0 text-[10px] font-medium text-[color:var(--foreground-muted)]">
                   {formatNotificationTime(item.occurred_at_utc)}

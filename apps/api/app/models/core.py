@@ -738,6 +738,7 @@ class CalculationRun(IdTimestampMixin, Base):
     formula_name: Mapped[str] = mapped_column(String(128), nullable=False)
     code_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     inputs_ref: Mapped[str] = mapped_column(String(1024), nullable=False)
+    normalization_policy_ref: Mapped[str | None] = mapped_column(String(1024))
     output_value: Mapped[float | None] = mapped_column(Float)
     output_unit: Mapped[str | None] = mapped_column(String(64))
     trace_log_ref: Mapped[str | None] = mapped_column(String(1024))
@@ -778,8 +779,12 @@ class VerificationResult(IdTimestampMixin, Base):
     verifier_version: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reason_code: Mapped[str | None] = mapped_column(String(64))
+    policy_version: Mapped[str | None] = mapped_column(String(64))
+    blocking: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     severity: Mapped[str] = mapped_column(String(32), default="normal", nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float)
+    citation_span_refs_json: Mapped[list[dict] | None] = mapped_column(JSON)
     checked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=now_utc,

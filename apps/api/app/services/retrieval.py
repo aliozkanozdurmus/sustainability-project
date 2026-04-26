@@ -37,6 +37,9 @@ class RetrievalStats:
     query_token_count: int
     matched_query_token_count: int
     best_score: float
+    matched_terms: list[str]
+    ranking_breakdown: dict[str, Any]
+    source_quality: dict[str, Any]
 
 
 def _tokenize(text: str) -> set[str]:
@@ -85,6 +88,10 @@ def _compute_coverage(query_token_count: int, matched_query_token_count: int) ->
     return round(matched_query_token_count / query_token_count, 6)
 
 
+def _compute_coverage_percent(coverage: float) -> float:
+    return round(coverage * 100, 2)
+
+
 def _load_local_index() -> dict[str, dict[str, Any]]:
     target = settings.local_search_index_root_path / f"{settings.azure_ai_search_index_name}.json"
     if not target.exists():
@@ -100,6 +107,75 @@ def _load_local_index() -> dict[str, dict[str, Any]]:
 
 def _normalized_lower_list(values: list[str]) -> list[str]:
     return [value.strip().lower() for value in values if value.strip()]
+
+
+def _metadata_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    metadata = row.get("metadata")
+    if isinstance(metadata, dict):
+        return dict(metadata)
+    return {}
+
+
+def _row_quality_grade(row: dict[str, Any]) -> str | None:
+    metadata = _metadata_from_row(row)
+    value = metadata.get("quality_grade") or row.get("quality_grade")
+    return str(value).strip() if value is not None and str(value).strip() else None
+
+
+def _row_quality_score(row: dict[str, Any]) -> float | None:
+    metadata = _metadata_from_row(row)
+    value = metadata.get("quality_score") or row.get("quality_score")
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _row_owner(row: dict[str, Any]) -> str | None:
+    metadata = _metadata_from_row(row)
+    value = metadata.get("owner") or row.get("owner")
+    return str(value).strip() if value is not None and str(value).strip() else None
+
+
+def _row_framework_tags(row: dict[str, Any], hints: RetrievalHints | None) -> list[str]:
+    metadata = _metadata_from_row(row)
+    raw = metadata.get("framework_tags")
+    if isinstance(raw, list):
+        tags = [str(item).strip() for item in raw if str(item).strip()]
+        if tags:
+            return tags
+    if hints and hints.section_tags:
+        return [tag.strip() for tag in hints.section_tags if tag.strip()]
+    return []
+
+
+def _row_period(row: dict[str, Any], hints: RetrievalHints | None) -> str | None:
+    metadata = _metadata_from_row(row)
+    value = metadata.get("period") or row.get("period")
+    if value is None and hints and hints.period:
+        value = hints.period
+    return str(value).strip() if value is not None and str(value).strip() else None
+
+
+def _row_source_quality(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "quality_grade": _row_quality_grade(row),
+        "quality_score": _row_quality_score(row),
+        "owner": _row_owner(row),
+        "issued_at": _metadata_from_row(row).get("issued_at") or row.get("issued_at"),
+        "document_type": _metadata_from_row(row).get("document_type") or row.get("document_type"),
+    }
+
+
+def _matched_terms(query_tokens: set[str], text: str) -> list[str]:
+    return sorted(_tokenize(text).intersection(query_tokens))
+
+
+def _ranking_breakdown(*, sparse: float | None, dense: float | None, final: float) -> dict[str, Any]:
+    return {
+        "sparse": round(sparse, 6) if sparse is not None else None,
+        "dense": round(dense, 6) if dense is not None else None,
+        "final": round(final, 6),
+    }
 
 
 def _build_augmented_query(query_text: str, hints: RetrievalHints | None) -> str:
@@ -149,6 +225,8 @@ def _to_chunk_index(value: Any) -> int | None:
 def _build_evidence_result(
     *,
     row: dict[str, Any],
+    hints: RetrievalHints | None,
+    query_tokens: set[str],
     sparse: float | None,
     dense: float | None,
     final: float,
@@ -156,6 +234,9 @@ def _build_evidence_result(
     chunk_id = str(row.get("chunk_id", row.get("id", "")))
     token_count_raw = row.get("token_count")
     token_count = token_count_raw if isinstance(token_count_raw, int) else None
+    metadata = _metadata_from_row(row)
+    matched_terms = _matched_terms(query_tokens, str(row.get("content", "") or ""))
+    source_quality = _row_source_quality(row)
     return EvidenceResult(
         evidence_id=chunk_id,
         source_document_id=str(row.get("source_document_id", "")),
@@ -166,10 +247,20 @@ def _build_evidence_result(
         score_sparse=round(sparse, 6) if sparse is not None else None,
         score_final=round(final, 6),
         metadata={
-            "section_label": row.get("section_label"),
+            "section_label": row.get("section_label") or metadata.get("section_label"),
+            "period": _row_period(row, hints),
+            "framework_tags": _row_framework_tags(row, hints),
+            "document_type": metadata.get("document_type") or row.get("document_type"),
+            "quality_grade": source_quality.get("quality_grade"),
+            "quality_score": source_quality.get("quality_score"),
+            "owner": source_quality.get("owner"),
+            "issued_at": source_quality.get("issued_at"),
             "chunk_index": row.get("chunk_index"),
             "token_count": token_count,
         },
+        matched_terms=matched_terms,
+        ranking_breakdown=_ranking_breakdown(sparse=sparse, dense=dense, final=final),
+        source_quality=source_quality,
     )
 
 
@@ -181,6 +272,7 @@ def _expand_small_to_big_local(
     query_tokens: set[str],
     retrieval_mode: str,
     context_window: int,
+    retrieval_hints: RetrievalHints | None,
 ) -> list[EvidenceResult]:
     selected: list[EvidenceResult] = []
     seen_chunk_ids: set[str] = set()
@@ -218,6 +310,8 @@ def _expand_small_to_big_local(
             selected.append(
                 _build_evidence_result(
                     row=neighbor,
+                    hints=retrieval_hints,
+                    query_tokens=query_tokens,
                     sparse=sparse,
                     dense=dense,
                     final=final,
@@ -237,6 +331,34 @@ def _quality_gate_passes(
     min_coverage: float,
 ) -> bool:
     return result_count > 0 and best_score >= min_score and coverage >= min_coverage
+
+
+def _summarize_stats(evidence: list[EvidenceResult]) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
+    matched_terms = sorted({term for item in evidence for term in item.matched_terms})
+    source_quality_scores = [
+        float(item.source_quality["quality_score"])
+        for item in evidence
+        if isinstance(item.source_quality.get("quality_score"), (int, float))
+    ]
+    ranking_scores = [item.score_final for item in evidence]
+    ranking_breakdown = {
+        "max_final_score": round(max(ranking_scores), 6) if ranking_scores else 0.0,
+        "min_final_score": round(min(ranking_scores), 6) if ranking_scores else 0.0,
+        "average_final_score": round(sum(ranking_scores) / len(ranking_scores), 6) if ranking_scores else 0.0,
+    }
+    source_quality = {
+        "average_quality_score": round(sum(source_quality_scores) / len(source_quality_scores), 2)
+        if source_quality_scores
+        else None,
+        "quality_grades": sorted(
+            {
+                str(item.source_quality["quality_grade"])
+                for item in evidence
+                if item.source_quality.get("quality_grade")
+            }
+        ),
+    }
+    return matched_terms, ranking_breakdown, source_quality
 
 
 def retrieve_evidence(
@@ -281,11 +403,15 @@ def retrieve_evidence(
             result_count=len(stats.evidence),
             filter_hit_count=stats.filter_hit_count,
             coverage=coverage,
+            coverage_percent=_compute_coverage_percent(coverage),
             best_score=round(stats.best_score, 6),
             quality_gate_passed=quality_gate_passed,
             latency_ms=latency_ms,
             index_name=settings.azure_ai_search_index_name,
             applied_filters={"tenant_id": tenant_id, "project_id": project_id},
+            matched_terms=stats.matched_terms,
+            ranking_breakdown=stats.ranking_breakdown,
+            source_quality=stats.source_quality,
         )
         if not quality_gate_passed:
             raise RetrievalQualityGateError(
@@ -330,11 +456,15 @@ def retrieve_evidence(
         result_count=len(stats.evidence),
         filter_hit_count=stats.filter_hit_count,
         coverage=coverage,
+        coverage_percent=_compute_coverage_percent(coverage),
         best_score=round(stats.best_score, 6),
         quality_gate_passed=quality_gate_passed,
         latency_ms=latency_ms,
         index_name=settings.azure_ai_search_index_name,
         applied_filters={"tenant_id": tenant_id, "project_id": project_id},
+        matched_terms=stats.matched_terms,
+        ranking_breakdown=stats.ranking_breakdown,
+        source_quality=stats.source_quality,
     )
     if not quality_gate_passed:
         raise RetrievalQualityGateError(
@@ -389,7 +519,14 @@ def _retrieve_local(
             continue
         scored.append(
             (
-                _build_evidence_result(row=row, sparse=sparse, dense=dense, final=final),
+                _build_evidence_result(
+                    row=row,
+                    hints=retrieval_hints,
+                    query_tokens=query_tokens,
+                    sparse=sparse,
+                    dense=dense,
+                    final=final,
+                ),
                 row,
             )
         )
@@ -404,6 +541,7 @@ def _retrieve_local(
             query_tokens=query_tokens,
             retrieval_mode=retrieval_mode,
             context_window=retrieval_hints.context_window,
+            retrieval_hints=retrieval_hints,
         )
     else:
         selected = anchors
@@ -412,6 +550,7 @@ def _retrieve_local(
     for item in selected:
         matched_tokens.update(_tokenize(item.text).intersection(query_tokens))
     best_score = max((item.score_final for item in selected), default=0.0)
+    matched_terms, ranking_breakdown, source_quality = _summarize_stats(selected)
 
     return RetrievalStats(
         evidence=selected,
@@ -419,6 +558,9 @@ def _retrieve_local(
         query_token_count=len(query_tokens),
         matched_query_token_count=len(matched_tokens),
         best_score=best_score,
+        matched_terms=matched_terms,
+        ranking_breakdown=ranking_breakdown,
+        source_quality=source_quality,
     )
 
 
@@ -451,6 +593,8 @@ def _retrieve_azure(
         evidence.append(
             _build_evidence_result(
                 row=row_dict,
+                hints=retrieval_hints,
+                query_tokens=query_tokens,
                 sparse=None,
                 dense=None,
                 final=score,
@@ -463,10 +607,14 @@ def _retrieve_azure(
     for item in selected:
         matched_tokens.update(_tokenize(item.text).intersection(query_tokens))
     best_score = max((item.score_final for item in selected), default=0.0)
+    matched_terms, ranking_breakdown, source_quality = _summarize_stats(selected)
     return RetrievalStats(
         evidence=selected,
         filter_hit_count=filter_hit_count,
         query_token_count=len(query_tokens),
         matched_query_token_count=len(matched_tokens),
         best_score=best_score,
+        matched_terms=matched_terms,
+        ranking_breakdown=ranking_breakdown,
+        source_quality=source_quality,
     )

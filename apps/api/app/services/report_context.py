@@ -155,6 +155,8 @@ REQUIRED_BRAND_KIT_FIELDS = (
 )
 
 DEFAULT_BRAND_LOGO_URI = "/brand/veni-logo-clean-orbit-emblem.png"
+DEMO_SEED_MODE = "demo_seed"
+WORKSPACE_BOOTSTRAP_MODE = "workspace_bootstrap"
 
 
 def _default_company_profile(*, tenant: Tenant, project: Project) -> CompanyProfile:
@@ -179,7 +181,10 @@ def _default_company_profile(*, tenant: Tenant, project: Project) -> CompanyProf
             "Veri bütünlüğü, operasyonel verimlilik ve paydaş güvenini aynı anda yükselten, "
             "ölçülebilir ve doğrulanabilir bir sürdürülebilirlik yönetim modeli uygulanmaktadır."
         ),
-        metadata_json={"auto_provisioned": True},
+        metadata_json={
+            "auto_provisioned": True,
+            "seed_mode": DEMO_SEED_MODE,
+        },
     )
 
 
@@ -197,6 +202,7 @@ def _default_brand_kit(*, tenant: Tenant, project: Project) -> BrandKit:
         metadata_json={
             "project_code": project.code,
             "auto_provisioned": True,
+            "seed_mode": DEMO_SEED_MODE,
         },
     )
 
@@ -256,6 +262,7 @@ def _default_connector(*, tenant: Tenant, project: Project, definition: dict[str
         ),
         connection_payload={
             "auto_provisioned": True,
+            "seed_mode": DEMO_SEED_MODE,
             **build_default_connection_profile(connector_type),
         },
         sample_payload=build_default_demo_sample_payload(connector_type),
@@ -275,13 +282,21 @@ def _metadata_flag(metadata: dict[str, Any] | None, key: str) -> bool:
     return bool(metadata.get(key))
 
 
+def _is_demo_seed(metadata: dict[str, Any] | None) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    if metadata.get("seed_mode") == DEMO_SEED_MODE:
+        return True
+    return bool(metadata.get("auto_provisioned"))
+
+
 def _profile_blockers(company_profile: CompanyProfile) -> list[dict[str, str]]:
     blockers: list[dict[str, str]] = []
-    if _metadata_flag(company_profile.metadata_json, "auto_provisioned"):
+    if _is_demo_seed(company_profile.metadata_json):
         blockers.append(
             {
                 "code": "COMPANY_PROFILE_NOT_CONFIRMED",
-                "message": "Company profile varsayilan bootstrap verisi ile duruyor; run oncesi onayli kurumsal profil girilmeli.",
+                "message": "Company profile demo seed durumunda; production benzeri run oncesi onayli kurumsal profil girilmeli.",
             }
         )
     for field_name, label in REQUIRED_COMPANY_PROFILE_FIELDS:
@@ -297,11 +312,11 @@ def _profile_blockers(company_profile: CompanyProfile) -> list[dict[str, str]]:
 
 def _brand_blockers(brand_kit: BrandKit) -> list[dict[str, str]]:
     blockers: list[dict[str, str]] = []
-    if _metadata_flag(brand_kit.metadata_json, "auto_provisioned"):
+    if _is_demo_seed(brand_kit.metadata_json):
         blockers.append(
             {
                 "code": "BRAND_KIT_NOT_CONFIRMED",
-                "message": "Brand kit varsayilan bootstrap degerleri ile duruyor; controlled publish oncesi tenant brand kit tanimi gerekli.",
+                "message": "Brand kit demo seed durumunda; controlled publish oncesi tenant brand kit tanimi gerekli.",
             }
         )
     for field_name, label in REQUIRED_BRAND_KIT_FIELDS:
@@ -370,7 +385,8 @@ def apply_report_factory_configuration(
             setattr(company_profile, field_name, next_value)
         metadata = dict(company_profile.metadata_json or {})
         metadata["auto_provisioned"] = False
-        metadata["configuration_source"] = "workspace_bootstrap"
+        metadata["seed_mode"] = WORKSPACE_BOOTSTRAP_MODE
+        metadata["configuration_source"] = WORKSPACE_BOOTSTRAP_MODE
         company_profile.metadata_json = metadata
 
     if isinstance(brand_kit_payload, dict):
@@ -392,7 +408,8 @@ def apply_report_factory_configuration(
             setattr(brand_kit, field_name, next_value)
         metadata = dict(brand_kit.metadata_json or {})
         metadata["auto_provisioned"] = False
-        metadata["configuration_source"] = "workspace_bootstrap"
+        metadata["seed_mode"] = WORKSPACE_BOOTSTRAP_MODE
+        metadata["configuration_source"] = WORKSPACE_BOOTSTRAP_MODE
         brand_kit.metadata_json = metadata
 
     db.flush()

@@ -34,6 +34,7 @@ from app.models.core import (
 from app.orchestration.checkpoint_store import CheckpointRecord, get_checkpoint_store
 from app.orchestration.executor import execute_workflow
 from app.orchestration.graph_scaffold import initialize_workflow, transition_failure, transition_success
+from app.orchestration.state import normalize_workflow_state
 from app.schemas.auth import CurrentUser
 from app.schemas.runs import (
     ReportArtifactResponse,
@@ -67,6 +68,7 @@ from app.services.report_factory import (
     _to_artifact_response_payload,
 )
 from app.services.job_queue import JobQueueService, get_job_queue_service
+from app.services.publish_gate import evaluate_publish_gate, resolve_latest_run_execution_context
 from app.services.integrations import connector_ready_for_launch, normalize_connector_type
 from app.services.report_pdf import download_report_artifact_bytes
 
@@ -231,7 +233,7 @@ async def list_runs(
     for run in rows:
         latest = checkpoint_store.load_latest_checkpoint(run_id=run.id)
         if latest is not None:
-            state = latest["state"]
+            state = normalize_workflow_state(latest["state"])
             active_node = str(state.get("active_node", "INIT_REQUEST"))
             human_approval = str(state.get("human_approval", "pending"))
             approval_board = state.get("approval_status_board", {})
@@ -274,7 +276,7 @@ def _build_run_status_response(
     report_run: ReportRun,
     checkpoint: CheckpointRecord,
 ) -> RunStatusResponse:
-    state = checkpoint["state"]
+    state = normalize_workflow_state(checkpoint["state"])
     approval_board = state.get("approval_status_board", {})
     triage_required = bool(approval_board.get("triage_required")) if isinstance(approval_board, dict) else False
     return RunStatusResponse(
@@ -770,9 +772,20 @@ def _persist_verification_artifacts(
             verification = verification_by_claim_id.get(external_claim_id, {})
             verification_status = str(verification.get("status", "UNSURE")).upper()
             verification_reason = str(verification.get("reason", "verification_not_available"))
+            verification_reason_code = str(verification.get("reason_code", "UNKNOWN")).strip() or "UNKNOWN"
+            verification_policy_version = (
+                str(verification.get("policy_version", "verifier-policy-v1")).strip()
+                or "verifier-policy-v1"
+            )
             verification_severity = str(verification.get("severity", "normal"))
+            verification_blocking = bool(verification.get("blocking", verification_status != "PASS"))
             confidence_raw = verification.get("confidence")
             confidence = float(confidence_raw) if isinstance(confidence_raw, (int, float)) else None
+            citation_span_refs = (
+                verification.get("citation_span_refs", [])
+                if isinstance(verification.get("citation_span_refs", []), list)
+                else []
+            )
 
             claim_row.status = verification_status.lower()
             claim_row.confidence = confidence
@@ -811,8 +824,12 @@ def _persist_verification_artifacts(
                     verifier_version=verifier_version,
                     status=verification_status,
                     reason=verification_reason,
+                    reason_code=verification_reason_code,
+                    policy_version=verification_policy_version,
+                    blocking=verification_blocking,
                     severity=verification_severity,
                     confidence=confidence,
+                    citation_span_refs_json=citation_span_refs,
                 )
                 db.add(verification_row)
             else:
@@ -821,8 +838,12 @@ def _persist_verification_artifacts(
                 verification_row.verifier_version = verifier_version
                 verification_row.status = verification_status
                 verification_row.reason = verification_reason
+                verification_row.reason_code = verification_reason_code
+                verification_row.policy_version = verification_policy_version
+                verification_row.blocking = verification_blocking
                 verification_row.severity = verification_severity
                 verification_row.confidence = confidence
+                verification_row.citation_span_refs_json = citation_span_refs
                 verification_row.checked_at = datetime.now(timezone.utc)
 
             citations = claim_payload.get("citations", [])
@@ -886,6 +907,10 @@ def _persist_verification_artifacts(
             inputs_ref = str(calc_item.get("inputs_ref", "")).strip() or f"state://{report_run.id}/unknown"
             output_unit = str(calc_item.get("output_unit", "")).strip() or None
             trace_log_ref = str(calc_item.get("trace_log_ref", "")).strip() or None
+            normalization_policy_ref = (
+                str(calc_item.get("normalization_policy_ref", "")).strip()
+                or "normalization/legacy/v1"
+            )
             status_value = str(calc_item.get("status", "completed")).strip().lower() or "completed"
             output_raw = calc_item.get("output_value")
             output_value = float(output_raw) if isinstance(output_raw, (int, float)) else None
@@ -908,6 +933,7 @@ def _persist_verification_artifacts(
                     formula_name=formula_name,
                     code_hash=code_hash,
                     inputs_ref=inputs_ref,
+                    normalization_policy_ref=normalization_policy_ref,
                     output_value=output_value,
                     output_unit=output_unit,
                     trace_log_ref=trace_log_ref,
@@ -915,6 +941,7 @@ def _persist_verification_artifacts(
                 )
                 db.add(calculation_row)
             else:
+                calculation_row.normalization_policy_ref = normalization_policy_ref
                 calculation_row.output_value = output_value
                 calculation_row.output_unit = output_unit
                 calculation_row.trace_log_ref = trace_log_ref
@@ -1058,7 +1085,7 @@ async def advance_run(
     if latest is None:
         raise HTTPException(status_code=404, detail="No checkpoint found for run.")
 
-    state = latest["state"]
+    state = normalize_workflow_state(latest["state"])
     if payload.success:
         transition = transition_success(
             state=state,
@@ -1113,7 +1140,7 @@ async def execute_run(
     if latest is None:
         raise HTTPException(status_code=404, detail="No checkpoint found for run.")
 
-    state = latest["state"]
+    state = normalize_workflow_state(latest["state"])
     if payload.human_approval_override is not None:
         state["human_approval"] = payload.human_approval_override
 
@@ -1218,7 +1245,10 @@ async def publish_run(
     if report_run is None:
         raise HTTPException(status_code=404, detail="Run not found for tenant/project.")
 
-    run_attempt, run_execution_id = _get_latest_run_execution_context(db=db, report_run_id=report_run.id)
+    run_attempt, run_execution_id = resolve_latest_run_execution_context(
+        db=db,
+        report_run_id=report_run.id,
+    )
     current_package = get_report_package(db=db, report_run_id=report_run.id)
     if report_run.status == "published" and current_package is not None and current_package.status == "completed":
         return _build_run_publish_response(
@@ -1231,7 +1261,7 @@ async def publish_run(
         )
 
     if report_run.status != "published":
-        blockers, run_attempt, run_execution_id = _evaluate_publish_gate(db=db, report_run=report_run)
+        blockers, run_attempt, run_execution_id = evaluate_publish_gate(db=db, report_run=report_run)
         if blockers:
             detail_payload = {
                 "schema_version": PUBLISH_GATE_SCHEMA_VERSION,

@@ -110,6 +110,10 @@ const notificationItemSchema = z.object({
   detail: z.string(),
   category: notificationCategorySchema,
   status: toneSchema,
+  priority: z.enum(["urgent", "high", "medium", "low"]).default("low"),
+  surface: z.string().default("dashboard"),
+  action_path: z.string().nullable().optional().default(null),
+  sort_rank: z.number().default(0),
   occurred_at_utc: nullableStringSchema,
   source_ref: notificationSourceRefSchema.nullable().optional(),
 });

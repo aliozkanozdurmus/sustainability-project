@@ -117,6 +117,10 @@ describe("web sdk functions", () => {
             detail: "queued • compose",
             category: "publish",
             status: "attention",
+            priority: "high",
+            surface: "publish_board",
+            action_path: "/approval-center?runId=run-1",
+            sort_rank: 1,
             occurred_at_utc: "2026-04-08T10:05:00Z",
             source_ref: {
               run_id: "run-1",
@@ -213,11 +217,22 @@ describe("web sdk functions", () => {
           result_count: 0,
           filter_hit_count: 0,
           coverage: 0,
+          coverage_percent: 0,
           best_score: 0,
           quality_gate_passed: false,
           latency_ms: 52,
           index_name: "tenant-1-project-1",
           applied_filters: {},
+          matched_terms: [],
+          ranking_breakdown: {
+            average_final_score: 0,
+            min_final_score: 0,
+            max_final_score: 0,
+          },
+          source_quality: {
+            average_quality_score: 0,
+            quality_grades: [],
+          },
         },
       }),
     );

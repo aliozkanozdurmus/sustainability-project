@@ -49,7 +49,7 @@ export function markNotificationsSeen(
 }
 
 export function countUnreadNotifications(
-  items: DashboardNotificationItem[],
+  items: Array<Pick<DashboardNotificationItem, "notification_id">>,
   seenNotificationIds: Iterable<string>,
 ): number {
   const seen = new Set(seenNotificationIds);

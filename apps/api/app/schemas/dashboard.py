@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 
 DashboardStatus = Literal["good", "attention", "critical", "neutral"]
+NotificationPriority = Literal["urgent", "high", "medium", "low"]
 NotificationCategory = Literal[
     "connector_sync",
     "report_run",
@@ -131,6 +132,10 @@ class NotificationItem(BaseModel):
     detail: str
     category: NotificationCategory
     status: DashboardStatus = "neutral"
+    priority: NotificationPriority = "low"
+    surface: str = "dashboard"
+    action_path: str | None = None
+    sort_rank: int = Field(default=0, ge=0)
     occurred_at_utc: str | None = None
     source_ref: NotificationSourceRef | None = None
 

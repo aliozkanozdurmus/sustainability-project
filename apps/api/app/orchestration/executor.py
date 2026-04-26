@@ -8,9 +8,18 @@ from typing import Any, Literal, Protocol
 
 from app.core.settings import settings
 from app.orchestration.checkpoint_store import CheckpointRecord, CheckpointStore
+from app.orchestration.contracts import (
+    CalculationResult,
+    Claim,
+    DraftSection,
+    EvidenceBlock,
+    TaskEnvelope,
+    VerificationResultContract,
+)
 from app.orchestration.graph_scaffold import NODE_FLOW_ONE_CLICK, transition_failure, transition_success
-from app.orchestration.state import NodeName, WorkflowState
+from app.orchestration.state import NodeName, WorkflowState, normalize_workflow_state
 from app.schemas.retrieval import RetrievalHints
+from app.services.calculation_registry import execute_formula
 from app.services.retrieval import RetrievalQualityGateError, retrieve_evidence
 from app.services.verifier import ClaimInput, verify_claims
 
@@ -130,16 +139,6 @@ def _detect_numeric_text(text: str) -> bool:
     return bool(re.search(r"\d", text))
 
 
-def _extract_first_number(text: str) -> float | None:
-    match = re.search(r"-?\d+(?:\.\d+)?", text)
-    if not match:
-        return None
-    try:
-        return float(match.group(0))
-    except ValueError:
-        return None
-
-
 def _handle_init_request(state: WorkflowState) -> dict[str, Any]:
     state["scope_decision"].setdefault("mode", "one_click")
     return {"handler": "init_request"}
@@ -180,34 +179,43 @@ def _handle_plan_tasks(state: WorkflowState) -> dict[str, Any]:
             if not query_text:
                 continue
             tasks.append(
-                {
-                    "task_id": str(raw_task.get("task_id") or f"task_{idx}_{framework.lower()}"),
-                    "framework": framework,
-                    "section_target": str(raw_task.get("section_target") or framework),
-                    "query_text": query_text,
-                    "retrieval_mode": str(raw_task.get("retrieval_mode") or default_mode),
-                    "top_k": int(raw_task.get("top_k", default_top_k)),
-                    "min_score": float(raw_task.get("min_score", default_min_score)),
-                    "min_coverage": float(raw_task.get("min_coverage", default_min_coverage)),
-                    "retrieval_hints": raw_task.get("retrieval_hints", default_hints),
-                    "status": "planned",
-                }
+                TaskEnvelope.model_validate(
+                    {
+                        "task_id": str(raw_task.get("task_id") or f"task_{idx}_{framework.lower()}"),
+                        "tenant_id": state["tenant_id"],
+                        "project_id": state["project_id"],
+                        "framework_target": framework,
+                        "section_target": str(raw_task.get("section_target") or framework),
+                        "query_text": query_text,
+                        "retrieval_mode": str(raw_task.get("retrieval_mode") or default_mode),
+                        "top_k": int(raw_task.get("top_k", default_top_k)),
+                        "min_score": float(raw_task.get("min_score", default_min_score)),
+                        "min_coverage": float(raw_task.get("min_coverage", default_min_coverage)),
+                        "retrieval_hints": raw_task.get("retrieval_hints", default_hints),
+                        "status": "planned",
+                        **raw_task,
+                    }
+                ).model_dump()
             )
     else:
         for framework in state["framework_target"]:
             tasks.append(
-                {
-                    "task_id": f"task_{framework.lower()}",
-                    "framework": framework,
-                    "section_target": framework,
-                    "query_text": f"{framework} sustainability disclosures",
-                    "retrieval_mode": default_mode,
-                    "top_k": default_top_k,
-                    "min_score": default_min_score,
-                    "min_coverage": default_min_coverage,
-                    "retrieval_hints": default_hints,
-                    "status": "planned",
-                }
+                TaskEnvelope.model_validate(
+                    {
+                        "task_id": f"task_{framework.lower()}",
+                        "tenant_id": state["tenant_id"],
+                        "project_id": state["project_id"],
+                        "framework_target": framework,
+                        "section_target": framework,
+                        "query_text": f"{framework} sustainability disclosures",
+                        "retrieval_mode": default_mode,
+                        "top_k": default_top_k,
+                        "min_score": default_min_score,
+                        "min_coverage": default_min_coverage,
+                        "retrieval_hints": default_hints,
+                        "status": "planned",
+                    }
+                ).model_dump()
             )
 
     if not tasks:
@@ -225,11 +233,12 @@ def _handle_retrieve_evidence(state: WorkflowState) -> dict[str, Any]:
     diagnostics_pool: list[dict[str, Any]] = []
 
     for task in state["task_queue"]:
-        query_text = str(task.get("query_text") or "").strip()
+        task_contract = TaskEnvelope.model_validate(task)
+        query_text = task_contract.query_text
         if not query_text:
-            raise NodeExecutionError(f"Task {task.get('task_id')} does not define query_text.")
+            raise NodeExecutionError(f"Task {task_contract.task_id} does not define query_text.")
 
-        hints_payload = task.get("retrieval_hints")
+        hints_payload = task_contract.retrieval_hints
         hints = None
         if isinstance(hints_payload, dict):
             hints = RetrievalHints.model_validate(hints_payload)
@@ -239,22 +248,22 @@ def _handle_retrieve_evidence(state: WorkflowState) -> dict[str, Any]:
                 tenant_id=state["tenant_id"],
                 project_id=state["project_id"],
                 query_text=query_text,
-                top_k=int(task.get("top_k", 5)),
-                retrieval_mode=str(task.get("retrieval_mode", "hybrid")),
-                min_score=float(task.get("min_score", 0.0)),
-                min_coverage=float(task.get("min_coverage", 0.0)),
+                top_k=task_contract.top_k,
+                retrieval_mode=task_contract.retrieval_mode,
+                min_score=task_contract.min_score,
+                min_coverage=task_contract.min_coverage,
                 retrieval_hints=hints,
             )
         except RetrievalQualityGateError as exc:
             raise NodeExecutionError(
-                f"Retrieval quality gate failed for task {task.get('task_id')}: {exc.reason}"
+                f"Retrieval quality gate failed for task {task_contract.task_id}: {exc.reason}"
             ) from exc
         except Exception as exc:
-            raise NodeExecutionError(f"Retrieval execution failed for task {task.get('task_id')}: {exc}") from exc
+            raise NodeExecutionError(f"Retrieval execution failed for task {task_contract.task_id}: {exc}") from exc
 
         diagnostics_pool.append(
             {
-                "task_id": str(task.get("task_id")),
+                "task_id": task_contract.task_id,
                 "query_text": query_text,
                 "diagnostics": outcome.diagnostics.model_dump(),
             }
@@ -263,29 +272,34 @@ def _handle_retrieve_evidence(state: WorkflowState) -> dict[str, Any]:
         for row in outcome.evidence:
             text = row.text or ""
             evidence_pool.append(
-                {
-                    "evidence_id": row.evidence_id,
-                    "task_id": str(task.get("task_id")),
-                    "framework": str(task.get("framework")),
-                    "section_target": str(task.get("section_target", "")),
-                    "query_text": query_text,
-                    "source_document_id": row.source_document_id,
-                    "chunk_id": row.chunk_id,
-                    "page": row.page,
-                    "text": text,
-                    "score_final": row.score_final,
-                    "score_dense": row.score_dense,
-                    "score_sparse": row.score_sparse,
-                    "metadata": row.metadata,
-                    "citations": [
-                        {
-                            "source_document_id": row.source_document_id,
-                            "chunk_id": row.chunk_id,
-                            "span_start": 0,
-                            "span_end": min(len(text), 200),
-                        }
-                    ],
-                }
+                EvidenceBlock.model_validate(
+                    {
+                        "evidence_id": row.evidence_id,
+                        "task_id": task_contract.task_id,
+                        "framework": task_contract.framework_target,
+                        "section_target": task_contract.section_target,
+                        "query_text": query_text,
+                        "source_document_id": row.source_document_id,
+                        "chunk_id": row.chunk_id,
+                        "page": row.page,
+                        "text": text,
+                        "score_final": row.score_final,
+                        "score_dense": row.score_dense,
+                        "score_sparse": row.score_sparse,
+                        "quality_grade": row.source_quality.get("quality_grade"),
+                        "quality_score": row.source_quality.get("quality_score"),
+                        "metadata": row.metadata,
+                        "citations": [
+                            {
+                                "source_document_id": row.source_document_id,
+                                "chunk_id": row.chunk_id,
+                                "span_start": 0,
+                                "span_end": min(len(text), 200),
+                                "page": row.page,
+                            }
+                        ],
+                    }
+                ).model_dump()
             )
 
     if not evidence_pool:
@@ -355,22 +369,31 @@ def _handle_validate_kpi_quality(state: WorkflowState) -> dict[str, Any]:
 def _handle_compute_metrics(state: WorkflowState) -> dict[str, Any]:
     calc_items: list[dict[str, Any]] = []
     for evidence in state["evidence_pool"]:
-        text = str(evidence.get("text", "") or "")
+        evidence_contract = EvidenceBlock.model_validate(evidence)
+        text = evidence_contract.text
         if not _detect_numeric_text(text):
             continue
-        parsed_value = _extract_first_number(text)
+        execution = execute_formula(
+            formula_name="regex_numeric_extract_v1",
+            run_id=state["run_id"],
+            evidence_id=evidence_contract.evidence_id,
+            evidence_text=text,
+        )
         calc_items.append(
-            {
-                "calc_id": f"calc_{evidence['evidence_id']}",
-                "evidence_id": evidence["evidence_id"],
-                "status": "completed",
-                "formula_name": "regex_numeric_extract_v1",
-                "code_hash": "sha256:regex_numeric_extract_v1",
-                "inputs_ref": f"state://{state['run_id']}/evidence/{evidence['evidence_id']}",
-                "output_unit": "unitless",
-                "output_value": parsed_value,
-                "trace_log_ref": f"state://{state['run_id']}/calc/{evidence['evidence_id']}/trace",
-            }
+            CalculationResult.model_validate(
+                {
+                    "calc_id": execution.calc_id,
+                    "evidence_id": execution.evidence_id,
+                    "status": execution.status,
+                    "formula_name": execution.formula_name,
+                    "code_hash": execution.code_hash,
+                    "inputs_ref": execution.inputs_ref,
+                    "output_value": execution.output_value,
+                    "output_unit": execution.output_unit,
+                    "trace_log_ref": execution.trace_log_ref,
+                    "normalization_policy_ref": execution.normalization_policy_ref,
+                }
+            ).model_dump()
         )
     state["calculation_pool"] = calc_items
     return {"handler": "compute_metrics", "calc_count": len(calc_items)}
@@ -385,36 +408,43 @@ def _handle_draft_section(state: WorkflowState) -> dict[str, Any]:
 
     drafts: list[dict[str, Any]] = []
     for task in state["task_queue"]:
-        task_id = str(task.get("task_id"))
-        task_evidence = [row for row in state["evidence_pool"] if str(row.get("task_id")) == task_id]
+        task_contract = TaskEnvelope.model_validate(task)
+        task_id = task_contract.task_id
+        task_evidence = [
+            EvidenceBlock.model_validate(row)
+            for row in state["evidence_pool"]
+            if str(row.get("task_id")) == task_id
+        ]
         claims: list[dict[str, Any]] = []
         for idx, evidence in enumerate(task_evidence):
-            statement = str(evidence.get("text", "")).strip()
+            statement = evidence.text.strip()
             is_numeric = _detect_numeric_text(statement)
-            citations = evidence.get("citations", [])
-            evidence_id = str(evidence.get("evidence_id"))
+            evidence_id = evidence.evidence_id
             calculation_refs: list[str] = []
             if is_numeric:
                 calc_id = calc_map.get(evidence_id)
                 if calc_id:
                     calculation_refs.append(calc_id)
             claims.append(
-                {
-                    "claim_id": f"clm_{task_id}_{idx}",
-                    "statement": statement,
-                    "is_numeric": is_numeric,
-                    "citations": citations,
-                    "calculation_refs": calculation_refs,
-                    "evidence_id": evidence_id,
-                }
+                Claim.model_validate(
+                    {
+                        "claim_id": f"clm_{task_id}_{idx}",
+                        "statement": statement,
+                        "is_numeric": is_numeric,
+                        "citations": evidence.citations,
+                        "calculation_refs": calculation_refs,
+                        "evidence_id": evidence_id,
+                    }
+                ).model_dump()
             )
         drafts.append(
-            {
-                "section_code": str(task.get("framework")),
-                "status": "drafted",
-                "claims": claims,
-                "claim_count": len(claims),
-            }
+            DraftSection.model_validate(
+                {
+                    "section_code": task_contract.framework_target,
+                    "status": "drafted",
+                    "claims": claims,
+                }
+            ).model_dump()
         )
 
     if not drafts:
@@ -435,25 +465,21 @@ def _handle_verify_claims(state: WorkflowState) -> dict[str, Any]:
     claim_inputs: list[ClaimInput] = []
     section_by_claim: dict[str, str] = {}
     for draft in state["draft_pool"]:
-        claims = draft.get("claims", [])
-        if not isinstance(claims, list):
-            continue
-        for claim in claims:
-            claim_id = str(claim.get("claim_id", "")).strip()
+        draft_contract = DraftSection.model_validate(draft)
+        for claim in draft_contract.claims:
+            claim_id = claim.claim_id
             if not claim_id:
                 continue
-            citations = claim.get("citations", [])
-            calc_refs = claim.get("calculation_refs", [])
             claim_inputs.append(
                 ClaimInput(
                     claim_id=claim_id,
-                    statement=str(claim.get("statement", "") or ""),
-                    is_numeric=bool(claim.get("is_numeric")),
-                    citations=citations if isinstance(citations, list) else [],
-                    calculation_refs=[str(ref) for ref in calc_refs] if isinstance(calc_refs, list) else [],
+                    statement=claim.statement,
+                    is_numeric=claim.is_numeric,
+                    citations=[citation.model_dump() for citation in claim.citations],
+                    calculation_refs=claim.calculation_refs,
                 )
             )
-            section_by_claim[claim_id] = str(draft.get("section_code", ""))
+            section_by_claim[claim_id] = draft_contract.section_code
 
     verifier_policy = state.get("scope_decision", {}).get("verifier_policy", {})
     pass_threshold = None
@@ -495,15 +521,21 @@ def _handle_verify_claims(state: WorkflowState) -> dict[str, Any]:
             unsure_count += 1
 
         verifications.append(
-            {
-                "section_code": section_by_claim.get(decision.claim_id, ""),
-                "claim_id": decision.claim_id,
-                "status": decision.status,
-                "severity": decision.severity,
-                "confidence": decision.confidence,
-                "reason": decision.reason,
-                "evidence_refs": decision.evidence_refs,
-            }
+            VerificationResultContract.model_validate(
+                {
+                    "section_code": section_by_claim.get(decision.claim_id, ""),
+                    "claim_id": decision.claim_id,
+                    "status": decision.status,
+                    "severity": decision.severity,
+                    "confidence": decision.confidence,
+                    "reason": decision.reason,
+                    "reason_code": decision.reason_code,
+                    "policy_version": decision.policy_version,
+                    "blocking": decision.blocking,
+                    "evidence_refs": decision.evidence_refs,
+                    "citation_span_refs": decision.citation_span_refs,
+                }
+            ).model_dump()
         )
 
     triage_required = critical_fail_count > 0 or unsure_count > 0
@@ -631,6 +663,9 @@ def execute_workflow(
     retry_budget_by_node: dict[str, int] | None = None,
     handler_registry: dict[NodeName, NodeHandler] | None = None,
 ) -> ExecutionOutcome:
+    normalized_state = normalize_workflow_state(state)
+    state.clear()
+    state.update(normalized_state)
     handlers = handler_registry or DEFAULT_NODE_HANDLERS
     retry_budget = _merge_retry_budget(retry_budget_by_node)
     executed_steps = 0

@@ -46,6 +46,7 @@ from app.schemas.dashboard import (
     RunQueueItem,
     ScheduleItem,
 )
+from app.services.dashboard_notifications import build_dashboard_notifications
 from app.services.report_context import build_report_factory_readiness, resolve_brand_logo_uri
 from app.services.integrations import connector_ready_for_launch, get_assigned_agent_status
 
@@ -1000,19 +1001,14 @@ async def get_dashboard_notifications(
         .limit(limit)
     ).all()
 
-    notifications: list[tuple[datetime, NotificationItem]] = []
-    notifications.extend(_build_audit_notification(event) for event in audit_events)
-    notifications.extend(
-        _build_connector_sync_notification(job, integration_by_id.get(job.integration_config_id))
-        for job in sync_jobs
-    )
-    notifications.extend(_build_document_upload_notification(document) for document in documents)
-    for run in runs:
-        notifications.extend(_build_run_notifications(run))
-
-    notifications.sort(key=_notification_sort_key, reverse=True)
-
     return DashboardNotificationsResponse(
-        items=[item for _, item in notifications[:limit]],
+        items=build_dashboard_notifications(
+            audit_events=audit_events,
+            sync_jobs=sync_jobs,
+            documents=documents,
+            runs=runs,
+            integration_by_id=integration_by_id,
+            limit=limit,
+        ),
         generated_at_utc=_utcnow().isoformat(),
     )

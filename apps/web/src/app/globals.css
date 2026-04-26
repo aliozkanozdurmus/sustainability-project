@@ -192,7 +192,7 @@
   }
 
   .eyebrow {
-    @apply text-[11px] font-semibold uppercase tracking-[0.18em];
+    @apply text-[11px] font-semibold tracking-[0.18em] uppercase;
     color: var(--foreground-muted);
   }
 
@@ -205,7 +205,7 @@
   }
 
   .search-field {
-    @apply h-11 w-full rounded-full border bg-white/86 pl-10 pr-12 text-[13px] text-foreground outline-none transition;
+    @apply text-foreground h-11 w-full rounded-full border bg-white/86 pr-12 pl-10 text-[13px] transition outline-none;
     border-color: rgba(23, 22, 19, 0.08);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
   }
@@ -220,7 +220,12 @@
   .shimmer {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.5));
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.5),
+      rgba(255, 255, 255, 0.88),
+      rgba(255, 255, 255, 0.5)
+    );
   }
 
   .shimmer::after {
@@ -242,7 +247,12 @@
 
   .soft-divider {
     @apply h-px w-full;
-    background: linear-gradient(90deg, rgba(23, 22, 19, 0), rgba(23, 22, 19, 0.08), rgba(23, 22, 19, 0));
+    background: linear-gradient(
+      90deg,
+      rgba(23, 22, 19, 0),
+      rgba(23, 22, 19, 0.08),
+      rgba(23, 22, 19, 0)
+    );
   }
 
   .soft-scrollbar {
@@ -258,6 +268,17 @@
   .soft-scrollbar::-webkit-scrollbar-thumb {
     background: rgba(23, 22, 19, 0.16);
     border-radius: 999px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

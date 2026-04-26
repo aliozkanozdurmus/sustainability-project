@@ -35,6 +35,30 @@ export const retrievalRequestSchema = z.object({
   }),
 });
 
+const rankingBreakdownSchema = z
+  .object({
+    dense: z.number().nullable().optional(),
+    sparse: z.number().nullable().optional(),
+    final: z.number().nullable().optional(),
+    average_final_score: z.number().nullable().optional(),
+    min_final_score: z.number().nullable().optional(),
+    max_final_score: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+const sourceQualitySchema = z
+  .object({
+    quality_grade: z.string().nullable().optional(),
+    quality_score: z.number().nullable().optional(),
+    average_quality_score: z.number().nullable().optional(),
+    quality_grades: z.array(z.string()).optional(),
+    owner: z.string().nullable().optional(),
+    period: z.string().nullable().optional(),
+    document_type: z.string().nullable().optional(),
+    issued_at: z.string().nullable().optional(),
+  })
+  .passthrough();
+
 const evidenceItemSchema = z.object({
   evidence_id: z.string(),
   source_document_id: z.string(),
@@ -45,6 +69,9 @@ const evidenceItemSchema = z.object({
   score_sparse: z.number().nullable(),
   score_final: z.number(),
   metadata: jsonObjectSchema,
+  matched_terms: z.array(z.string()).default([]),
+  ranking_breakdown: rankingBreakdownSchema.default({}),
+  source_quality: sourceQualitySchema.default({}),
 });
 
 export const retrievalResponseSchema = z.object({
@@ -57,21 +84,22 @@ export const retrievalResponseSchema = z.object({
     result_count: z.number(),
     filter_hit_count: z.number(),
     coverage: z.number(),
+    coverage_percent: z.number().default(0),
     best_score: z.number(),
     quality_gate_passed: z.boolean(),
     latency_ms: z.number(),
     index_name: z.string(),
-    applied_filters: z.record(z.string(), z.string()),
+    applied_filters: z.record(z.string(), z.string()).default({}),
+    matched_terms: z.array(z.string()).default([]),
+    ranking_breakdown: rankingBreakdownSchema.default({}),
+    source_quality: sourceQualitySchema.default({}),
   }),
 });
 
 export type RetrievalResponse = z.infer<typeof retrievalResponseSchema>;
 export type RetrievalLabFormInput = z.infer<typeof retrievalLabFormSchema>;
 
-export function buildRetrievalRequest(
-  workspace: WorkspaceContext,
-  input: RetrievalLabFormInput,
-) {
+export function buildRetrievalRequest(workspace: WorkspaceContext, input: RetrievalLabFormInput) {
   const parsed = retrievalLabFormSchema.parse(input);
 
   return retrievalRequestSchema.parse({

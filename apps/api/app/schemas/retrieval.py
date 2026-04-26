@@ -36,6 +36,9 @@ class EvidenceResult(BaseModel):
     score_sparse: float | None
     score_final: float
     metadata: dict[str, Any]
+    matched_terms: list[str] = Field(default_factory=list)
+    ranking_breakdown: dict[str, Any] = Field(default_factory=dict)
+    source_quality: dict[str, Any] = Field(default_factory=dict)
 
 
 class RetrievalDiagnostics(BaseModel):
@@ -45,11 +48,15 @@ class RetrievalDiagnostics(BaseModel):
     result_count: int
     filter_hit_count: int
     coverage: float = Field(ge=0.0, le=1.0)
+    coverage_percent: float = Field(ge=0.0, le=100.0)
     best_score: float = Field(ge=0.0)
     quality_gate_passed: bool
     latency_ms: int
     index_name: str
     applied_filters: dict[str, str]
+    matched_terms: list[str] = Field(default_factory=list)
+    ranking_breakdown: dict[str, Any] = Field(default_factory=dict)
+    source_quality: dict[str, Any] = Field(default_factory=dict)
 
 
 class RetrievalQueryResponse(BaseModel):

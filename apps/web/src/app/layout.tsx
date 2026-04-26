@@ -24,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning data-theme="factory-light">
+    <html lang="tr-TR" suppressHydrationWarning data-theme="factory-light">
       <body
         className={cn(
           "bg-canvas overflow-x-hidden overscroll-none font-sans antialiased",
