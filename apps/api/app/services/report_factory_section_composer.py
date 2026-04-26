@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.models.core import BrandKit, CanonicalFact, CompanyProfile, ReportRun
 
 
+# Bu varsayimlar, Veni AI'nin report factory ciktisinda acikca tasidigi
+# "neyi iddia etmiyoruz" katmanidir; PDF ekleri ve audit paketi bunu disari tasir.
 DEFAULT_ASSUMPTIONS = [
     "AI gorseller yalnizca dekoratif veya konsept kullanim icindir; performans iddiasi tasimaz.",
     "Canli ERP verisi bulunmayan alanlarda proje bootstrap profili ve secili connector scope kullanilmistir.",
@@ -28,6 +30,7 @@ class ComposedReportSections:
 def ensure_snapshot_rows(*, db: Session, report_run: ReportRun, facts: list[CanonicalFact]) -> None:
     from app.services import report_factory as legacy_report_factory
 
+    # Snapshot satirlari dashboard ve PDF tarafinin ayni metric kovasini gormesini saglar.
     legacy_report_factory._ensure_snapshot_rows(db=db, report_run=report_run, facts=facts)
 
 
@@ -42,6 +45,8 @@ def compose_report_sections(
 ) -> ComposedReportSections:
     from app.services import report_factory as legacy_report_factory
 
+    # Section composer, retrieval/verifier havuzundan gelen domain verisini
+    # blueprint'teki her bolume kontrollu sekilde dagitan ince orkestrasyon katmanidir.
     metric_bucket = legacy_report_factory._metric_bucket(facts)
     claim_domains, citation_index, calculations = legacy_report_factory._build_claim_domains(
         db=db,

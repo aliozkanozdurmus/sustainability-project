@@ -10,6 +10,8 @@ from app.models.core import BrandKit, CompanyProfile, ReportPackage, ReportRun, 
 from app.services.blob_storage import BlobStorageService
 
 
+# Bu moduldaki kural basit: veri iddiasi tasiyan grafikler deterministic SVG,
+# dekoratif sahneler ise kurumsal gorsel prompt zinciri uzerinden uretilir.
 @dataclass(frozen=True)
 class VisualBuildResult:
     section_payloads: list[dict[str, Any]]
@@ -39,6 +41,8 @@ def generate_visual_assets(
                 continue
             lower_slot = visual_slot.lower()
             if any(token in lower_slot for token in ("chart", "matrix", "grid")):
+                # Sayisal guven tasiyan varliklar burada modelden degil,
+                # section payload icinden deterministic olarak uretiliyor.
                 if "matrix" in lower_slot:
                     svg = legacy_report_factory._build_matrix_svg(
                         title=section["title"],
@@ -66,6 +70,8 @@ def generate_visual_assets(
                     svg=svg,
                 )
             else:
+                # Dekoratif gorseller bilincli olarak "metin ve rakam icermeyen"
+                # promptlarla uretiliyor; boylece rapor anlatisi ile gorsel karismaz.
                 payload, content_type = legacy_report_factory._upload_visual_image_asset(
                     db=db,
                     blob_storage=blob_storage,
@@ -86,6 +92,8 @@ def generate_visual_assets(
             visual_data_uris[visual_slot] = legacy_report_factory._to_data_uri(payload, content_type)
 
     if "cover_hero" not in visual_data:
+        # Kapak gorseli blueprint'te ayrica verilmemisse dahi paket eksik kalmasin diye
+        # kurumsal bir fallback hero uretiyoruz.
         payload, content_type = legacy_report_factory._upload_visual_image_asset(
             db=db,
             blob_storage=blob_storage,

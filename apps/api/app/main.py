@@ -13,6 +13,8 @@ from app.telemetry import setup_telemetry, shutdown_telemetry
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Veni AI API'si acilirken once paylasilan servisleri,
+    # sonra telemetry katmanini ayaga kaldiriyoruz.
     runtime_services = build_app_runtime_services()
     bind_runtime_services(app, runtime_services)
     telemetry_runtime = setup_telemetry(app)
@@ -20,6 +22,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # Kapanista ters sirayla inmek, ozellikle local dev ve test kosullarinda
+        # acik baglanti / client sizmasini azaltir.
         shutdown_telemetry(getattr(app.state, "telemetry", None))
         await shutdown_app_runtime_services(getattr(app.state, "runtime_services", None))
         app.state.telemetry = None

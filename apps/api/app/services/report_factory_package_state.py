@@ -14,6 +14,8 @@ from app.models.core import Project, ReportArtifact, ReportPackage, ReportRun, R
 from app.services.blob_storage import BlobStorageService
 
 
+# Package state modulu, controlled publish surecinin denetlenebilir hafizasidir.
+# UI'daki queue board ve audit bundle ayni stage gecmisini burada okur.
 @dataclass(frozen=True)
 class PackageArtifacts:
     package: ReportPackage
@@ -119,6 +121,8 @@ def ensure_report_package_record(
 ) -> ReportPackage:
     package = get_report_package(db=db, report_run_id=report_run.id)
     if package is None:
+        # Ilk kayit aninda package'i hemen olusturuyoruz ki
+        # queue ve approval center "henuz artefakt yok" durumunu da izleyebilsin.
         package = ReportPackage(
             tenant_id=report_run.tenant_id,
             project_id=report_run.project_id,
@@ -197,6 +201,8 @@ def complete_report_package(
 ) -> PackageArtifacts:
     from app.services import report_factory as legacy_report_factory
 
+    # Final artefact seti tek noktada kapanir; boylece publish gate,
+    # package completeness ve download endpoint'leri ayni truth source'u kullanir.
     coverage_matrix = [
         {
             "section_code": section["section_code"],

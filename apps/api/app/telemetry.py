@@ -14,6 +14,8 @@ from app.core.settings import settings
 logger = logging.getLogger(__name__)
 
 
+# Telemetry katmani zorunlu degil; bu proje local demo modda da calisabildigi icin
+# OpenTelemetry paketleri yoksa uygulama fail-open yerine kontrollu sekilde devam eder.
 @dataclass(slots=True)
 class TelemetryRuntime:
     enabled: bool
@@ -131,6 +133,8 @@ def setup_telemetry(app: FastAPI) -> TelemetryRuntime:
     headers = _parse_otlp_headers(settings.otel_exporter_otlp_headers)
     resource = _build_resource(otel)
 
+    # Service metadata, Veni AI cockpit akislarini collector tarafinda
+    # ayristirabilmek icin merkezi olarak burada set ediliyor.
     tracer_provider = otel["TracerProvider"](resource=resource)
     meter_provider = None
     logger_provider = None
@@ -233,6 +237,8 @@ def observe_operation(
     *,
     attributes: Mapping[str, Any] | None = None,
 ) -> Iterator[None]:
+    # Bu helper'i retrieval, queue ve packaging gibi kritik adimlarda
+    # ayni isimlendirme disiplinini korumak icin kullaniyoruz.
     attributes = dict(attributes or {})
     start = perf_counter()
     otel = _import_opentelemetry()

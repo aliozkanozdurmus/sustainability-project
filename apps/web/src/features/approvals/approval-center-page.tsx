@@ -177,6 +177,8 @@ function toneForRun(run: RunListItem) {
 }
 
 function deriveQueueBucket(run: RunListItem): QueueBucket {
+  // Approval center'da en kritik tercih burada:
+  // kullaniciyi once blocker kuyruğuna, sonra release akışına yonlendiriyoruz.
   if (run.report_run_status === "published" || run.package_status === "completed") {
     return "archive";
   }
@@ -200,6 +202,8 @@ function buildRunBlockers(
   triage: TriageResponse | null,
   packageState: RunPackageStatus | null,
 ): string[] {
+  // Drawer icindeki blocker listesi, backend publish gate sinyallerini
+  // operator'a aksiyon diline ceviren UI katmanidir.
   const blockers: string[] = [];
   if (run.triage_required) {
     blockers.push("Verifier triage kuyruğu temizlenmeden controlled publish ilerlemez.");
@@ -357,6 +361,8 @@ function QueueCard({
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {/* Ilk fold'da tablo yerine ozet kartlari kullanmamizin nedeni,
+            operator'un package, SLA ve publish readiness'i tek bakista ayirmasidir. */}
         <div className="rounded-[1.25rem] border border-[color:var(--border)] bg-[color:var(--muted)]/55 px-3 py-3">
           <p className="text-[11px] tracking-[0.14em] text-[color:var(--foreground-muted)] uppercase">
             Workflow
@@ -636,6 +642,8 @@ function BlockersDrawer({
         />
       ) : (
         <>
+          {/* Bu panel, bizim ekipteki publish owner'in bakis acisini temsil ediyor:
+              secili run icin karar vermeyi saglayan minimum ama yeterli veri burada toplanir. */}
           <div className="rounded-[1.45rem] border border-[color:var(--border)] bg-[linear-gradient(160deg,#1a1917_0%,#234a3a_100%)] px-4 py-4 text-white">
             <div className="flex items-start justify-between gap-3">
               <div>

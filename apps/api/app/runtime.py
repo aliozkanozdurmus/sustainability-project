@@ -14,6 +14,8 @@ from app.services.job_queue import JobQueueService, create_job_queue_service
 from app.services.search_index import SearchIndexService, create_search_index_service
 
 
+# Veni AI API katmaninda paylasilan servisleri tek noktadan tasiyoruz;
+# boylece her request'te yeni Azure/queue client'i acmak zorunda kalmiyoruz.
 @dataclass(slots=True)
 class AppRuntimeServices:
     blob_storage: BlobStorageService
@@ -25,6 +27,8 @@ class AppRuntimeServices:
 def build_app_runtime_services() -> AppRuntimeServices:
     document_intelligence: DocumentIntelligenceService | None = None
     try:
+        # OCR servisi bazi ortamlarda bilincli olarak kapali olabilir;
+        # bu durumda uygulama komple dusmek yerine ilgili endpoint 503 doner.
         document_intelligence = create_document_intelligence_service()
     except ValueError:
         document_intelligence = None
@@ -63,6 +67,8 @@ async def shutdown_app_runtime_services(runtime_services: AppRuntimeServices | N
     if runtime_services is None:
         return
 
+    # Kapanis sirasini deterministik tutuyoruz; package ve retrieval akislarinin
+    # dayandigi client'lar kontrollu sekilde serbest birakiliyor.
     for service in (
         runtime_services.document_intelligence,
         runtime_services.search_index,
