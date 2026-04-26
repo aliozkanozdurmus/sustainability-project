@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
+from fastapi import Request
 
 from app.core.settings import settings
 
@@ -63,8 +64,11 @@ class AzureDocumentIntelligenceService:
             model_id=self.model_id,
         )
 
+    def close(self) -> None:
+        self.client.close()
 
-def get_document_intelligence_service() -> DocumentIntelligenceService:
+
+def create_document_intelligence_service() -> DocumentIntelligenceService:
     if not settings.azure_document_intelligence_endpoint:
         raise ValueError("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT must be set.")
     if not settings.azure_document_intelligence_api_key:
@@ -76,3 +80,11 @@ def get_document_intelligence_service() -> DocumentIntelligenceService:
         api_version=settings.azure_document_intelligence_api_version,
     )
     return AzureDocumentIntelligenceService(client=client)
+
+
+def get_document_intelligence_service(request: Request = None) -> DocumentIntelligenceService:
+    runtime_state = getattr(getattr(request, "app", None), "state", None)
+    runtime_services = getattr(runtime_state, "runtime_services", None) if runtime_state is not None else None
+    if runtime_services is not None and runtime_services.document_intelligence is not None:
+        return runtime_services.document_intelligence
+    return create_document_intelligence_service()

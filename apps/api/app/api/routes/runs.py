@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import re
 from typing import Any, Literal
 
@@ -76,6 +76,60 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 RUN_MUTATION_ROLES = ("admin", "compliance_manager", "analyst")
 RUN_READ_ROLES = (*RUN_MUTATION_ROLES, "auditor_readonly")
 RUN_PUBLISH_ROLES = ("admin", "compliance_manager", "board_member")
+REQUIRED_ARTIFACT_TYPES = (
+    REPORT_PDF_ARTIFACT_TYPE,
+    VISUAL_MANIFEST_ARTIFACT_TYPE,
+    CITATION_INDEX_ARTIFACT_TYPE,
+    CALCULATION_APPENDIX_ARTIFACT_TYPE,
+    COVERAGE_MATRIX_ARTIFACT_TYPE,
+    ASSUMPTION_REGISTER_ARTIFACT_TYPE,
+)
+ARTIFACT_BADGE_LABELS = {
+    REPORT_PDF_ARTIFACT_TYPE: "PDF",
+    VISUAL_MANIFEST_ARTIFACT_TYPE: "Visuals",
+    CITATION_INDEX_ARTIFACT_TYPE: "Citations",
+    CALCULATION_APPENDIX_ARTIFACT_TYPE: "Calculations",
+    COVERAGE_MATRIX_ARTIFACT_TYPE: "Coverage",
+    ASSUMPTION_REGISTER_ARTIFACT_TYPE: "Assumptions",
+}
+
+
+def _artifact_completeness(artifact_types: set[str]) -> tuple[float, list[str]]:
+    matched = [artifact_type for artifact_type in REQUIRED_ARTIFACT_TYPES if artifact_type in artifact_types]
+    ratio = round(len(matched) / len(REQUIRED_ARTIFACT_TYPES), 2)
+    badges = [ARTIFACT_BADGE_LABELS[artifact_type] for artifact_type in matched]
+    return ratio, badges
+
+
+def _approval_sla_fields(
+    *,
+    report_run: ReportRun,
+    state: dict[str, Any] | None,
+) -> tuple[str | None, Literal["healthy", "risk", "breached", "complete", "unknown"]]:
+    if report_run.status in {"completed", "published"} or report_run.package_status == "completed":
+        return None, "complete"
+
+    if not report_run.started_at:
+        return None, "unknown"
+
+    scope_decision = state.get("scope_decision", {}) if isinstance(state, dict) else {}
+    raw_days = scope_decision.get("approval_sla_days") if isinstance(scope_decision, dict) else None
+    if not isinstance(raw_days, int) or raw_days <= 0:
+        return None, "unknown"
+
+    deadline = report_run.started_at + timedelta(days=raw_days)
+    now = datetime.now(timezone.utc)
+    if now >= deadline:
+        return deadline.isoformat(), "breached"
+
+    started_at = report_run.started_at
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    total_window = max((deadline - started_at).total_seconds(), 1)
+    remaining_seconds = max((deadline - now).total_seconds(), 0)
+    if (remaining_seconds / total_window) <= 0.25:
+        return deadline.isoformat(), "risk"
+    return deadline.isoformat(), "healthy"
 
 
 def _to_report_artifact_response(artifact: ReportArtifact) -> ReportArtifactResponse:
@@ -218,22 +272,25 @@ async def list_runs(
     )
 
     artifact_map: dict[str, ReportArtifactResponse] = {}
+    artifact_type_map: dict[str, set[str]] = {}
     run_ids = [run.id for run in rows]
     if run_ids:
         artifacts = db.scalars(
-            select(ReportArtifact).where(
-                ReportArtifact.report_run_id.in_(run_ids),
-                ReportArtifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE,
-            )
+            select(ReportArtifact).where(ReportArtifact.report_run_id.in_(run_ids))
         ).all()
-        artifact_map = {artifact.report_run_id: _to_report_artifact_response(artifact) for artifact in artifacts}
+        for artifact in artifacts:
+            artifact_type_map.setdefault(artifact.report_run_id, set()).add(artifact.artifact_type)
+            if artifact.artifact_type == REPORT_PDF_ARTIFACT_TYPE:
+                artifact_map[artifact.report_run_id] = _to_report_artifact_response(artifact)
 
     checkpoint_store = get_checkpoint_store()
     items: list[RunListItem] = []
     for run in rows:
         latest = checkpoint_store.load_latest_checkpoint(run_id=run.id)
+        workflow_state: dict[str, Any] | None = None
         if latest is not None:
             state = normalize_workflow_state(latest["state"])
+            workflow_state = state
             active_node = str(state.get("active_node", "INIT_REQUEST"))
             human_approval = str(state.get("human_approval", "pending"))
             approval_board = state.get("approval_status_board", {})
@@ -246,6 +303,14 @@ async def list_runs(
             triage_required = False
             last_checkpoint_status = "completed"
             last_checkpoint_at_utc = None
+
+        artifact_completion_ratio, artifact_badges = _artifact_completeness(
+            artifact_type_map.get(run.id, set())
+        )
+        approval_sla_deadline_utc, approval_sla_status = _approval_sla_fields(
+            report_run=run,
+            state=workflow_state,
+        )
 
         items.append(
             RunListItem(
@@ -263,6 +328,10 @@ async def list_runs(
                 report_quality_score=run.report_quality_score,
                 latest_sync_at_utc=run.latest_sync_at.isoformat() if run.latest_sync_at else None,
                 visual_generation_status=run.visual_generation_status,
+                approval_sla_deadline_utc=approval_sla_deadline_utc,
+                approval_sla_status=approval_sla_status,
+                artifact_completion_ratio=artifact_completion_ratio,
+                artifact_badges=artifact_badges,
                 report_pdf=artifact_map.get(run.id),
             )
         )

@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "node ./e2e/scripts/run-playwright-e2e.mjs",
+    "e2e:release-smoke": "node ./e2e/scripts/run-playwright-e2e.mjs ./e2e/specs/approval-center-queue.spec.ts ./e2e/specs/accessibility-smoke.spec.ts",
     "e2e:manual-smoke": "node ./e2e/scripts/run-playwright-manual-smoke.mjs"
   },
   "dependencies": {

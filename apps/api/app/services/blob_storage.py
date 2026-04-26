@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
 from typing import Protocol
+from urllib.parse import urlparse
 
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient, ContentSettings
+from fastapi import Request
 
 from app.core.settings import settings
 
@@ -50,6 +51,9 @@ class LocalBlobStorageService:
         path = Path(storage_uri.replace("file://", ""))
         return path.read_bytes()
 
+    def close(self) -> None:
+        return None
+
 
 @dataclass
 class AzureBlobStorageService:
@@ -86,6 +90,9 @@ class AzureBlobStorageService:
         blob_client = self.service_client.get_blob_client(container=container, blob=blob_name)
         return blob_client.download_blob().readall()
 
+    def close(self) -> None:
+        self.service_client.close()
+
 
 def _build_azure_client() -> BlobServiceClient:
     if settings.azure_storage_connection_string:
@@ -98,7 +105,7 @@ def _build_azure_client() -> BlobServiceClient:
     return BlobServiceClient(account_url=account_url, credential=DefaultAzureCredential())
 
 
-def get_blob_storage_service() -> BlobStorageService:
+def create_blob_storage_service() -> BlobStorageService:
     if settings.azure_storage_use_local:
         return LocalBlobStorageService(
             root_path=settings.local_blob_root_path,
@@ -109,3 +116,11 @@ def get_blob_storage_service() -> BlobStorageService:
         container=settings.azure_storage_container_raw,
         service_client=_build_azure_client(),
     )
+
+
+def get_blob_storage_service(request: Request = None) -> BlobStorageService:
+    runtime_state = getattr(getattr(request, "app", None), "state", None)
+    runtime_services = getattr(runtime_state, "runtime_services", None) if runtime_state is not None else None
+    if runtime_services is not None:
+        return runtime_services.blob_storage
+    return create_blob_storage_service()

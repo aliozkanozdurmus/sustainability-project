@@ -16,7 +16,7 @@ import {
   workspaceQueryParams,
 } from "./core";
 import { queryKeys } from "./query-keys";
-import { healthBandSchema, jsonObjectSchema, nullableStringSchema, supportTierSchema } from "./schema-helpers";
+import { jsonObjectSchema, nullableStringSchema } from "./schema-helpers";
 
 export const approvalCenterSearchParamsSchema = z.object({
   created: z.string().optional(),
@@ -53,6 +53,10 @@ export const runListItemSchema = z.object({
   report_quality_score: z.number().nullable(),
   latest_sync_at_utc: nullableStringSchema,
   visual_generation_status: z.string(),
+  approval_sla_deadline_utc: nullableStringSchema,
+  approval_sla_status: z.enum(["healthy", "risk", "breached", "complete", "unknown"]),
+  artifact_completion_ratio: z.number(),
+  artifact_badges: z.array(z.string()),
   report_pdf: reportArtifactSchema.nullable(),
 });
 
@@ -180,8 +184,12 @@ async function invalidateRunData(
   ];
 
   if (runId) {
-    tasks.push(queryClient.invalidateQueries({ queryKey: queryKeys.runs.packageStatus(workspace, runId) }));
-    tasks.push(queryClient.invalidateQueries({ queryKey: queryKeys.runs.triage(workspace, runId) }));
+    tasks.push(
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs.packageStatus(workspace, runId) }),
+    );
+    tasks.push(
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs.triage(workspace, runId) }),
+    );
   }
 
   await Promise.all(tasks);
@@ -358,7 +366,8 @@ export function useRunsQuery(
 ) {
   return useQuery({
     queryKey: queryKeys.runs.list(workspace),
-    queryFn: ({ signal }) => fetchRuns(workspace!, { page: options.page, size: options.size, signal }),
+    queryFn: ({ signal }) =>
+      fetchRuns(workspace!, { page: options.page, size: options.size, signal }),
     enabled: Boolean(workspace),
     refetchInterval: options.pollWhilePending
       ? (query) => {

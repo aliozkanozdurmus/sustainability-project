@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from azure.core.credentials import AzureKeyCredential
 from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
+from fastapi import Request
 
 from app.core.settings import settings
 
@@ -72,6 +73,9 @@ class LocalSearchIndexService:
         target.write_text(json.dumps(existing, ensure_ascii=True, indent=2), encoding="utf-8")
         return len(documents)
 
+    def close(self) -> None:
+        return None
+
 
 @dataclass
 class AzureSearchIndexService:
@@ -92,6 +96,9 @@ class AzureSearchIndexService:
             return len(payload)
         return succeeded
 
+    def close(self) -> None:
+        self.client.close()
+
 
 def _build_azure_search_client() -> SearchClient:
     if not settings.azure_ai_search_endpoint:
@@ -109,7 +116,7 @@ def _build_azure_search_client() -> SearchClient:
     )
 
 
-def get_search_index_service() -> SearchIndexService:
+def create_search_index_service() -> SearchIndexService:
     if settings.azure_ai_search_use_local:
         return LocalSearchIndexService(
             root_path=settings.local_search_index_root_path,
@@ -117,3 +124,11 @@ def get_search_index_service() -> SearchIndexService:
         )
 
     return AzureSearchIndexService(client=_build_azure_search_client())
+
+
+def get_search_index_service(request: Request = None) -> SearchIndexService:
+    runtime_state = getattr(getattr(request, "app", None), "state", None)
+    runtime_services = getattr(runtime_state, "runtime_services", None) if runtime_state is not None else None
+    if runtime_services is not None:
+        return runtime_services.search_index
+    return create_search_index_service()

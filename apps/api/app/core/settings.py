@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     report_factory_default_locale: str = Field(default="tr-TR")
     connector_operations_inline_fallback: bool = Field(default=True)
     connector_agent_stale_after_seconds: int = Field(default=300)
+    otel_enabled: bool = Field(default=False)
+    otel_service_name: str = Field(default="veni-ai-sustainability-cockpit-api")
+    otel_exporter_otlp_endpoint: str | None = Field(default=None)
+    otel_exporter_otlp_headers: str | None = Field(default=None)
+    otel_console_export: bool = Field(default=False)
 
     @model_validator(mode="after")
     def enforce_locked_ai_and_database_policy(self) -> "Settings":

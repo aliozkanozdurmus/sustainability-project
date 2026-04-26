@@ -68,6 +68,10 @@ class RunListItem(BaseModel):
     report_quality_score: float | None = None
     latest_sync_at_utc: str | None = None
     visual_generation_status: str
+    approval_sla_deadline_utc: str | None = None
+    approval_sla_status: Literal["healthy", "risk", "breached", "complete", "unknown"] = "unknown"
+    artifact_completion_ratio: float = Field(default=0.0, ge=0, le=1)
+    artifact_badges: list[str] = Field(default_factory=list)
     report_pdf: ReportArtifactResponse | None = None
 
 

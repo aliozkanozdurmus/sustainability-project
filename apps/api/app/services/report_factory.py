@@ -54,12 +54,28 @@ from app.models.core import (
     VerificationResult,
 )
 from app.services.blob_storage import BlobStorageService, get_blob_storage_service
+from app.services.report_factory_package_state import (
+    PackageArtifacts,
+    append_stage as package_append_stage,
+    build_package_status_payload as package_build_package_status_payload,
+    complete_report_package,
+    ensure_report_package_record as ensure_package_record,
+    get_report_package as package_get_report_package,
+    list_run_artifacts as package_list_run_artifacts,
+    update_stage as package_update_stage,
+)
+from app.services.report_factory_section_composer import (
+    compose_report_sections,
+    ensure_snapshot_rows as compose_snapshot_rows,
+)
+from app.services.report_factory_visual_pipeline import generate_visual_assets
 from app.services.report_context import (
     DEFAULT_BRAND_LOGO_URI,
     build_report_factory_readiness,
     ensure_project_report_context,
     resolve_brand_logo_uri,
 )
+from app.telemetry import observe_operation
 
 
 REPORT_PDF_ARTIFACT_TYPE = "report_pdf"
@@ -154,12 +170,6 @@ VISUAL_SCENE_LABELS = {
 
 class ReportPackageGenerationError(RuntimeError):
     pass
-
-
-@dataclass(frozen=True)
-class PackageArtifacts:
-    package: ReportPackage
-    artifacts: list[ReportArtifact]
 
 
 @dataclass(frozen=True)
@@ -3052,18 +3062,7 @@ def _upsert_artifact(
 
 
 def build_package_status_payload(*, db: Session, report_run: ReportRun) -> dict[str, Any]:
-    package = get_report_package(db=db, report_run_id=report_run.id)
-    return {
-        "run_id": report_run.id,
-        "package_job_id": package.id if package else None,
-        "package_status": package.status if package else report_run.package_status,
-        "current_stage": package.current_stage if package else None,
-        "report_quality_score": report_run.report_quality_score,
-        "visual_generation_status": report_run.visual_generation_status,
-        "artifacts": [_to_artifact_response_payload(item) for item in list_run_artifacts(db=db, report_run_id=report_run.id)],
-        "stage_history": _serialize_stage_history(package) if package else [],
-        "generated_at_utc": _utcnow().isoformat(),
-    }
+    return package_build_package_status_payload(db=db, report_run=report_run)
 
 
 def _resolve_report_context(
@@ -3122,335 +3121,166 @@ def ensure_report_package(
     report_run: ReportRun,
     blob_storage: BlobStorageService | None = None,
 ) -> PackageArtifacts:
-    tenant = db.get(Tenant, report_run.tenant_id)
-    project = db.get(Project, report_run.project_id)
-    if tenant is None or project is None:
-        raise ReportPackageGenerationError("Run tenant/project bağlantıları eksik.")
+    with observe_operation(
+        "report_factory.ensure_report_package",
+        attributes={
+            "report_run.id": report_run.id,
+            "tenant.id": report_run.tenant_id,
+            "project.id": report_run.project_id,
+        },
+    ):
+        tenant = db.get(Tenant, report_run.tenant_id)
+        project = db.get(Project, report_run.project_id)
+        if tenant is None or project is None:
+            raise ReportPackageGenerationError("Run tenant/project bağlantıları eksik.")
 
-    company_profile, brand, blueprint = _resolve_report_context(
-        db=db,
-        report_run=report_run,
-        tenant=tenant,
-        project=project,
-    )
-    readiness = build_report_factory_readiness(
-        company_profile=company_profile,
-        brand_kit=brand,
-    )
-    if not readiness["is_ready"]:
-        blocker_summary = "; ".join(blocker["message"] for blocker in readiness["blockers"])
-        raise ReportPackageGenerationError(
-            "Report factory context hazir degil. "
-            f"{blocker_summary}"
+        company_profile, brand, blueprint = _resolve_report_context(
+            db=db,
+            report_run=report_run,
+            tenant=tenant,
+            project=project,
         )
-    blob = blob_storage or get_blob_storage_service()
-    package = get_report_package(db=db, report_run_id=report_run.id)
-    if package is None:
-        package = ReportPackage(
-            tenant_id=report_run.tenant_id,
-            project_id=report_run.project_id,
-            report_run_id=report_run.id,
-            status="queued",
-            current_stage="queued",
-            stage_history_json=[],
-            started_at=_utcnow(),
+        readiness = build_report_factory_readiness(
+            company_profile=company_profile,
+            brand_kit=brand,
         )
-        db.add(package)
+        if not readiness["is_ready"]:
+            blocker_summary = "; ".join(blocker["message"] for blocker in readiness["blockers"])
+            raise ReportPackageGenerationError(
+                "Report factory context hazir degil. "
+                f"{blocker_summary}"
+            )
+        blob = blob_storage or get_blob_storage_service()
+        package = package_get_report_package(db=db, report_run_id=report_run.id)
+        if package is None:
+            package = ensure_package_record(db=db, report_run=report_run)
+
+        if package.status == "completed":
+            return PackageArtifacts(
+                package=package,
+                artifacts=package_list_run_artifacts(db=db, report_run_id=report_run.id),
+            )
+
+        blueprint_sections = blueprint.blueprint_json.get("sections", []) if isinstance(blueprint.blueprint_json, dict) else []
+        if not isinstance(blueprint_sections, list) or not blueprint_sections:
+            raise ReportPackageGenerationError("Blueprint section tanımı bulunamadı.")
+
+        integrations = _resolve_selected_integrations(db=db, report_run=report_run)
+        latest_jobs: dict[str, ConnectorSyncJob] = {}
+        for integration in integrations:
+            job = db.scalar(
+                select(ConnectorSyncJob)
+                .where(
+                    ConnectorSyncJob.integration_config_id == integration.id,
+                    ConnectorSyncJob.project_id == report_run.project_id,
+                )
+                .order_by(ConnectorSyncJob.completed_at.desc(), ConnectorSyncJob.created_at.desc())
+            )
+            if job is None or job.status != "completed":
+                raise ReportPackageGenerationError(
+                    f"{integration.display_name} için başarılı sync işi bulunamadı. Publish öncesi senkronizasyon gerekli."
+                )
+            latest_jobs[integration.connector_type] = job
+
+        latest_completed_jobs = [job for job in latest_jobs.values() if job.completed_at is not None]
+        if not latest_completed_jobs:
+            raise ReportPackageGenerationError("Başarılı connector sync işi bulunamadı.")
+        latest_sync_job = max(latest_completed_jobs, key=lambda job: job.completed_at or job.created_at)
+        package.latest_sync_job_id = latest_sync_job.id
+        report_run.latest_sync_at = max(job.completed_at for job in latest_completed_jobs if job.completed_at is not None)
+
+        fact_query = select(CanonicalFact).where(CanonicalFact.project_id == report_run.project_id)
+        if report_run.connector_scope:
+            fact_query = fact_query.where(CanonicalFact.source_system.in_(report_run.connector_scope))
+        facts = db.scalars(fact_query.order_by(CanonicalFact.metric_code.asc(), CanonicalFact.period_key.desc())).all()
+        if not facts:
+            raise ReportPackageGenerationError("Canonical fact havuzu boş. Publish öncesi connector sync gerekli.")
+
+        package.status = "running"
+        report_run.package_status = "running"
         db.flush()
 
-    if package.status == "completed":
-        return PackageArtifacts(package=package, artifacts=list_run_artifacts(db=db, report_run_id=report_run.id))
+        current_stage = "sync"
+        try:
+            section_payloads: list[dict[str, Any]] = []
+            citation_index: list[dict[str, Any]] = []
+            calculations: list[dict[str, Any]] = []
+            visual_data: dict[str, tuple[bytes, str]] = {}
+            visual_data_uris: dict[str, str] = {}
+            assumptions: list[str] = []
 
-    blueprint_sections = blueprint.blueprint_json.get("sections", []) if isinstance(blueprint.blueprint_json, dict) else []
-    if not isinstance(blueprint_sections, list) or not blueprint_sections:
-        raise ReportPackageGenerationError("Blueprint section tanımı bulunamadı.")
+            for current_stage in PACKAGE_STAGES:
+                package_append_stage(package, current_stage, "running")
 
-    integrations = _resolve_selected_integrations(db=db, report_run=report_run)
-    latest_jobs: dict[str, ConnectorSyncJob] = {}
-    for integration in integrations:
-        job = db.scalar(
-            select(ConnectorSyncJob)
-            .where(
-                ConnectorSyncJob.integration_config_id == integration.id,
-                ConnectorSyncJob.project_id == report_run.project_id,
-            )
-            .order_by(ConnectorSyncJob.completed_at.desc(), ConnectorSyncJob.created_at.desc())
-        )
-        if job is None or job.status != "completed":
-            raise ReportPackageGenerationError(
-                f"{integration.display_name} için başarılı sync işi bulunamadı. Publish öncesi senkronizasyon gerekli."
-            )
-        latest_jobs[integration.connector_type] = job
+                if current_stage == "normalize":
+                    compose_snapshot_rows(db=db, report_run=report_run, facts=facts)
 
-    latest_completed_jobs = [job for job in latest_jobs.values() if job.completed_at is not None]
-    if not latest_completed_jobs:
-        raise ReportPackageGenerationError("Başarılı connector sync işi bulunamadı.")
-    latest_sync_job = max(latest_completed_jobs, key=lambda job: job.completed_at or job.created_at)
-    package.latest_sync_job_id = latest_sync_job.id
-    report_run.latest_sync_at = max(job.completed_at for job in latest_completed_jobs if job.completed_at is not None)
-
-    fact_query = select(CanonicalFact).where(CanonicalFact.project_id == report_run.project_id)
-    if report_run.connector_scope:
-        fact_query = fact_query.where(CanonicalFact.source_system.in_(report_run.connector_scope))
-    facts = db.scalars(fact_query.order_by(CanonicalFact.metric_code.asc(), CanonicalFact.period_key.desc())).all()
-    if not facts:
-        raise ReportPackageGenerationError("Canonical fact havuzu boş. Publish öncesi connector sync gerekli.")
-
-    package.status = "running"
-    report_run.package_status = "running"
-    db.flush()
-
-    current_stage = "sync"
-    try:
-        metric_bucket = _metric_bucket(facts)
-        section_payloads: list[dict[str, Any]] = []
-        claim_domains: dict[str, list[str]] = {}
-        citation_index: list[dict[str, Any]] = []
-        calculations: list[dict[str, Any]] = []
-        visual_data: dict[str, tuple[bytes, str]] = {}
-        visual_data_uris: dict[str, str] = {}
-        assumptions = [
-            "AI görseller yalnızca dekoratif veya konsept kullanım içindir; performans iddiası taşımaz.",
-            "Canlı ERP verisi bulunmayan alanlarda proje bootstrap profili ve seçili connector scope kullanılmıştır.",
-            "Anlatı yalnızca canonical fact, company profile ve PASS claim havuzundan türetilmiştir.",
-        ]
-
-        for current_stage in PACKAGE_STAGES:
-            _append_stage(package, current_stage, "running")
-
-            if current_stage == "normalize":
-                _ensure_snapshot_rows(db=db, report_run=report_run, facts=facts)
-
-            elif current_stage == "outline":
-                claim_domains, citation_index, calculations = _build_claim_domains(
-                    db=db,
-                    report_run_id=report_run.id,
-                )
-                section_payloads = [
-                    _build_section_payload(
+                elif current_stage == "outline":
+                    composed_sections = compose_report_sections(
+                        db=db,
+                        report_run=report_run,
                         company_profile=company_profile,
                         brand=brand,
-                        section_definition=section_definition,
-                        metric_bucket=metric_bucket,
-                        claim_domains=claim_domains,
+                        blueprint_sections=blueprint_sections,
+                        facts=facts,
                     )
-                    for section_definition in blueprint_sections
-                ]
+                    section_payloads = composed_sections.section_payloads
+                    citation_index = composed_sections.citation_index
+                    calculations = composed_sections.calculations
+                    assumptions = composed_sections.assumptions
 
-            elif current_stage == "charts_images":
-                report_run.visual_generation_status = "running"
-                for section in section_payloads:
-                    for visual_slot in section["visual_slots"]:
-                        if visual_slot in visual_data:
-                            continue
-                        lower_slot = visual_slot.lower()
-                        if any(token in lower_slot for token in ("chart", "matrix", "grid")):
-                            if "matrix" in lower_slot:
-                                svg = _build_matrix_svg(title=section["title"], metrics=section["metrics"], brand=brand)
-                            elif "grid" in lower_slot:
-                                svg = _build_grid_svg(title=section["title"], metrics=section["metrics"], brand=brand)
-                            else:
-                                svg = section["chart_svg"] or _build_chart_svg(
-                                    title=section["title"],
-                                    values=section["chart_values"],
-                                    brand=brand,
-                                )
-                            payload, content_type = _upload_visual_svg_asset(
-                                db=db,
-                                blob_storage=blob,
-                                package=package,
-                                visual_slot=visual_slot,
-                                title=section["title"],
-                                svg=svg,
-                            )
-                        else:
-                            payload, content_type = _upload_visual_image_asset(
-                                db=db,
-                                blob_storage=blob,
-                                package=package,
-                                brand=brand,
-                                visual_slot=visual_slot,
-                                title=section["title"],
-                                prompt_text=(
-                                    f"{section['title']} bölümü için dekoratif kurumsal sürdürülebilirlik görseli. "
-                                    f"Sahne: {VISUAL_SCENE_LABELS.get(_visual_scene_for_slot(visual_slot), VISUAL_SCENE_LABELS['default'])}. "
-                                    f"Sektör bağlamı: {company_profile.sector or 'kurumsal üretim'}. "
-                                    f"Renk paleti: primary {brand.primary_color}, secondary {brand.secondary_color}, accent {brand.accent_color}. "
-                                    "Tam sayfa editoryal kalite, profesyonel annual report estetiği, veri iddiası taşımayan, "
-                                    "gerçek belge veya operasyon fotoğrafı gibi görünmeyen, üzerinde metin veya rakam barındırmayan."
-                                ),
-                            )
-                        visual_data[visual_slot] = (payload, content_type)
-                        visual_data_uris[visual_slot] = _to_data_uri(payload, content_type)
-
-                if "cover_hero" not in visual_data:
-                    payload, content_type = _upload_visual_image_asset(
+                elif current_stage == "charts_images":
+                    visuals = generate_visual_assets(
                         db=db,
                         blob_storage=blob,
                         package=package,
+                        report_run=report_run,
+                        company_profile=company_profile,
                         brand=brand,
-                        visual_slot="cover_hero",
-                        title="Kurumsal Sürdürülebilirlik",
-                        prompt_text=(
-                            f"Dekoratif kurumsal kapak görseli. Marka tonu {brand.tone_name}; "
-                            f"renkler {brand.primary_color}, {brand.secondary_color}, {brand.accent_color}. "
-                            f"Konu: {company_profile.sector or 'endüstriyel üretim'} için sürdürülebilirlik report cover. "
-                            "Premium annual report hissi, derinlikli kompozisyon, endüstriyel ve çevresel motif dengesi, "
-                            "metin ve rakam içermeyen, veri iddiası taşımayan konsept görsel."
-                        ),
+                        section_payloads=section_payloads,
                     )
-                    visual_data["cover_hero"] = (payload, content_type)
-                    visual_data_uris["cover_hero"] = _to_data_uri(payload, content_type)
-                report_run.visual_generation_status = "completed"
+                    section_payloads = visuals.section_payloads
+                    visual_data = visuals.visual_data
+                    visual_data_uris = visuals.visual_data_uris
 
-                for section in section_payloads:
-                    section["chart_visual_slot"] = next(
-                        (slot for slot in section["visual_slots"] if any(token in slot.lower() for token in ("chart", "matrix", "grid"))),
-                        None,
+                elif current_stage == "compose":
+                    rendered_pdf = _render_pdf_document(
+                        tenant=tenant,
+                        project=project,
+                        company_profile=company_profile,
+                        brand=brand,
+                        section_payloads=section_payloads,
+                        visual_data=visual_data,
+                        visual_data_uris=visual_data_uris,
+                        citations=citation_index,
+                        calculations=calculations,
+                        assumptions=assumptions,
                     )
 
-            elif current_stage == "compose":
-                rendered_pdf = _render_pdf_document(
-                    tenant=tenant,
-                    project=project,
-                    company_profile=company_profile,
-                    brand=brand,
-                    section_payloads=section_payloads,
-                    visual_data=visual_data,
-                    visual_data_uris=visual_data_uris,
-                    citations=citation_index,
-                    calculations=calculations,
-                    assumptions=assumptions,
-                )
+                package_update_stage(package, current_stage, "completed")
 
-            _update_stage(package, current_stage, "completed")
-
-        coverage_matrix = [
-            {
-                "section_code": section["section_code"],
-                "title": section["title"],
-                "required_metrics": section["required_metrics"],
-                "metric_count": len(section["metrics"]),
-                "claim_count": len(section["claims"]),
-                "appendix_refs": section["appendix_refs"],
-            }
-            for section in section_payloads
-        ]
-        visual_manifest = [
-            {
-                "visual_slot": row.visual_slot,
-                "source_type": row.source_type,
-                "decorative_ai_generated": row.decorative_ai_generated,
-                "storage_uri": row.storage_uri,
-                "status": row.status,
-                "content_type": row.content_type,
-                "metadata": row.metadata_json or {},
-            }
-            for row in db.scalars(
-                select(ReportVisualAsset).where(ReportVisualAsset.report_package_id == package.id)
-            ).all()
-        ]
-
-        confidence_values = [fact.confidence_score or 0.9 for fact in facts]
-        report_quality_score = round(
-            min(
-                100.0,
-                ((sum(confidence_values) / len(confidence_values)) * 55)
-                + (min(1.0, len(citation_index) / max(1, len(section_payloads) * 2)) * 25)
-                + (min(1.0, len({fact.metric_code for fact in facts}) / max(1, len(section_payloads) * 2)) * 20),
-            ),
-            2,
-        )
-
-        report_run.report_quality_score = report_quality_score
-        report_run.package_status = "completed"
-        package.status = "completed"
-        package.current_stage = "controlled_publish"
-        package.package_quality_score = report_quality_score
-        package.summary_json = {
-            "section_count": len(section_payloads),
-            "citation_count": len(citation_index),
-            "visual_count": len(visual_manifest),
-            "renderer": rendered_pdf.renderer,
-            "page_count": rendered_pdf.page_count,
-        }
-        package.completed_at = _utcnow()
-
-        artifact_metadata = {
-            "package_id": package.id,
-            "report_quality_score": report_quality_score,
-            "page_count": rendered_pdf.page_count,
-            "renderer": rendered_pdf.renderer,
-            "blueprint_version": blueprint.version,
-        }
-
-        artifacts = [
-            _upsert_artifact(
+            return complete_report_package(
                 db=db,
                 blob_storage=blob,
                 package=package,
                 report_run=report_run,
-                artifact_type=artifact_type,
-                content_type=content_type,
-                payload=payload,
-                filename=_artifact_filename(project, report_run, artifact_type, extension),
-                metadata=metadata,
+                project=project,
+                blueprint_version=blueprint.version,
+                facts=facts,
+                section_payloads=section_payloads,
+                rendered_pdf=rendered_pdf,
+                citation_index=citation_index,
+                calculations=calculations,
+                assumptions=assumptions,
             )
-            for artifact_type, content_type, payload, extension, metadata in [
-                (
-                    REPORT_PDF_ARTIFACT_TYPE,
-                    "application/pdf",
-                    rendered_pdf.payload,
-                    "pdf",
-                    artifact_metadata,
-                ),
-                (
-                    VISUAL_MANIFEST_ARTIFACT_TYPE,
-                    "application/json",
-                    json.dumps(visual_manifest, ensure_ascii=False, indent=2).encode("utf-8"),
-                    "json",
-                    {"package_id": package.id, "visual_count": len(visual_manifest)},
-                ),
-                (
-                    CITATION_INDEX_ARTIFACT_TYPE,
-                    "application/json",
-                    json.dumps(citation_index, ensure_ascii=False, indent=2).encode("utf-8"),
-                    "json",
-                    {"package_id": package.id, "citation_count": len(citation_index)},
-                ),
-                (
-                    CALCULATION_APPENDIX_ARTIFACT_TYPE,
-                    "application/json",
-                    json.dumps(calculations, ensure_ascii=False, indent=2).encode("utf-8"),
-                    "json",
-                    {"package_id": package.id, "calculation_count": len(calculations)},
-                ),
-                (
-                    COVERAGE_MATRIX_ARTIFACT_TYPE,
-                    "application/json",
-                    json.dumps(coverage_matrix, ensure_ascii=False, indent=2).encode("utf-8"),
-                    "json",
-                    {"package_id": package.id, "section_count": len(section_payloads)},
-                ),
-                (
-                    ASSUMPTION_REGISTER_ARTIFACT_TYPE,
-                    "application/json",
-                    json.dumps(assumptions, ensure_ascii=False, indent=2).encode("utf-8"),
-                    "json",
-                    {"package_id": package.id, "assumption_count": len(assumptions)},
-                ),
-            ]
-        ]
-        db.flush()
-        return PackageArtifacts(package=package, artifacts=artifacts)
 
-    except Exception as exc:
-        package.error_message = str(exc)
-        package.completed_at = _utcnow()
-        report_run.package_status = "failed"
-        report_run.visual_generation_status = (
-            report_run.visual_generation_status if report_run.visual_generation_status != "running" else "failed"
-        )
-        _update_stage(package, current_stage, "failed", str(exc))
-        db.flush()
-        raise
+        except Exception as exc:
+            package.error_message = str(exc)
+            package.completed_at = _utcnow()
+            report_run.package_status = "failed"
+            report_run.visual_generation_status = (
+                report_run.visual_generation_status if report_run.visual_generation_status != "running" else "failed"
+            )
+            package_update_stage(package, current_stage, "failed", str(exc))
+            db.flush()
+            raise
